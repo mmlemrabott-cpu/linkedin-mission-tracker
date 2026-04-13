@@ -38,6 +38,12 @@ _PAGE_SIZE = 50
 # HTTP timeout in seconds
 _REQUEST_TIMEOUT = 30
 
+# Maximum retry attempts on HTTP 429 before giving up on a single page request
+_MAX_429_RETRIES = 3
+
+# Base backoff delay (seconds) on first 429 retry — doubles each attempt: 10s → 20s → 40s
+_BACKOFF_BASE = 10.0
+
 
 def scrape_bereach(
     config: AppConfig,
@@ -152,7 +158,9 @@ def _fetch_all_pages(
     Fetch all paginated results for a single keyword query from the BeReach API.
 
     Paginates while hasMore is True and the collected item count is below max_posts.
-    Adds a random delay between pages to respect rate limits.
+    Adds a random delay between pages to respect rate limits. Each individual page
+    request is wrapped in _post_with_retry which handles HTTP 429 with exponential
+    backoff (10s → 20s → 40s, up to _MAX_429_RETRIES retries).
 
     Args:
         keywords: Boolean keyword query string.
@@ -184,31 +192,8 @@ def _fetch_all_pages(
             "start": start,
         }
 
-        try:
-            logger.debug(
-                "[bereach] POST %s%s keywords='%.60s...' start=%d",
-                _BASE_URL, _ENDPOINT, keywords, start,
-            )
-            resp = requests.post(
-                f"{_BASE_URL}{_ENDPOINT}",
-                json=payload,
-                headers=headers,
-                timeout=_REQUEST_TIMEOUT,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.exceptions.HTTPError as exc:
-            logger.error(
-                "[bereach] HTTP %d error (keywords='%.60s...', start=%d): %s",
-                exc.response.status_code if exc.response is not None else 0,
-                keywords, start, exc,
-            )
-            break
-        except Exception as exc:
-            logger.error(
-                "[bereach] Request failed (keywords='%.60s...', start=%d): %s",
-                keywords, start, exc,
-            )
+        data = _post_with_retry(keywords, payload, headers, logger)
+        if data is None:
             break
 
         items = data.get("items", [])
@@ -229,6 +214,76 @@ def _fetch_all_pages(
         page += 1
 
     return collected
+
+
+def _post_with_retry(
+    keywords: str,
+    payload: Dict[str, Any],
+    headers: Dict[str, str],
+    logger: logging.Logger,
+) -> Optional[Dict[str, Any]]:
+    """
+    POST to the BeReach API with exponential-backoff retry on HTTP 429.
+
+    Retries up to _MAX_429_RETRIES times on 429 responses. Backoff doubles each
+    attempt: 10s → 20s → 40s. Non-429 HTTP errors and network errors abort
+    immediately without retry.
+
+    Args:
+        keywords: Keyword query string (used only for log messages).
+        payload: JSON request body.
+        headers: HTTP headers including Authorization.
+        logger: Logger instance.
+
+    Returns:
+        Parsed JSON response dict, or None if all attempts failed.
+    """
+    start = payload.get("start", 0)
+
+    for attempt in range(1, _MAX_429_RETRIES + 2):  # 1 initial attempt + up to 3 retries
+        try:
+            logger.debug(
+                "[bereach] POST %s%s keywords='%.60s...' start=%d (attempt %d)",
+                _BASE_URL, _ENDPOINT, keywords, start, attempt,
+            )
+            resp = requests.post(
+                f"{_BASE_URL}{_ENDPOINT}",
+                json=payload,
+                headers=headers,
+                timeout=_REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status == 429 and attempt <= _MAX_429_RETRIES:
+                backoff = _BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.warning(
+                    "[bereach] HTTP 429 (keywords='%.60s...', start=%d) — "
+                    "retry %d/%d in %.0fs",
+                    keywords, start, attempt, _MAX_429_RETRIES, backoff,
+                )
+                time.sleep(backoff)
+                continue
+            logger.error(
+                "[bereach] HTTP %d error (keywords='%.60s...', start=%d): %s",
+                status, keywords, start, exc,
+            )
+            return None
+
+        except Exception as exc:
+            logger.error(
+                "[bereach] Request failed (keywords='%.60s...', start=%d): %s",
+                keywords, start, exc,
+            )
+            return None
+
+    logger.error(
+        "[bereach] Gave up after %d retries on 429 (keywords='%.60s...', start=%d)",
+        _MAX_429_RETRIES, keywords, start,
+    )
+    return None
 
 
 def _normalize_bereach_post(item: Dict[str, Any]) -> Optional[RawPost]:
