@@ -85,12 +85,14 @@ def scrape_bereach(
         "[bereach] Running %d keyword queries in parallel.", len(keyword_queries)
     )
 
-    # Fetch all pages for each query in parallel, staggered by 5s to avoid 429
+    # Fetch all pages for each query in parallel, staggered by 10s to avoid 429.
+    # 10s gap ensures earlier workers' pagination requests don't collide with
+    # later workers' first requests under BeReach's per-minute rate limit.
     with ThreadPoolExecutor(max_workers=len(keyword_queries)) as executor:
         futures = {
             executor.submit(
                 _fetch_all_pages, keywords, headers, config.max_posts_per_country, logger,
-                initial_delay=i * 5.0,
+                initial_delay=i * 10.0,
             ): keywords
             for i, keywords in enumerate(keyword_queries)
         }
