@@ -2,8 +2,8 @@ name: Daily LinkedIn Freelance Mission Extract
 
 on:
   schedule:
-    # 06:00 UTC daily = 08:00 CEST (summer) / 07:00 CET (winter)
-    - cron: '0 6 * * *'
+    # 10:30 UTC daily = 12:30 CEST (summer) / 11:30 CET (winter)
+    - cron: '30 10 * * *'
   workflow_dispatch:
     # Allows manual trigger from the GitHub Actions UI for testing
 

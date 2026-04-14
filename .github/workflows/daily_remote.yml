@@ -2,8 +2,8 @@ name: Daily LinkedIn Remote Job Extract
 
 on:
   schedule:
-    # 06:30 UTC daily = 30 min after the freelance pipeline (avoids dedup race)
-    - cron: '30 6 * * *'
+    # 11:00 UTC daily = 13:00 CEST (summer) / 12:00 CET (winter) — 30 min after freelance pipeline (avoids dedup race)
+    - cron: '0 11 * * *'
   workflow_dispatch:
     # Allows manual trigger from GitHub Actions UI
 
