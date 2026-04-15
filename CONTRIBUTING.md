@@ -152,6 +152,6 @@ matcher/
 sheets/
   sheets_writer.py        — Google Sheets read/write, dedup, cache
 .github/workflows/
-  daily_extract.yml       — freelance missions pipeline (06:00 UTC daily)
-  daily_remote.yml        — remote jobs pipeline (06:30 UTC daily)
+  daily_extract.yml       — freelance missions pipeline (10:30 UTC daily = 12:30 CEST)
+  daily_remote.yml        — remote jobs pipeline (11:00 UTC daily = 13:00 CEST)
 ```

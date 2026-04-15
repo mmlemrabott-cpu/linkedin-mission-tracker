@@ -20,9 +20,9 @@ scores them against a consultant profile using Claude AI, and writes structured 
 
 \- Runtime config: Google Sheets `Paramètres` tab overrides `settings.json` at startup
 
-\- CI/CD: `.github/workflows/daily_extract.yml` — runs every day at 06:00 UTC (= 08:00 CEST / 07:00 CET)
+\- CI/CD: `.github/workflows/daily_extract.yml` — runs every day at 10:30 UTC (= 12:30 CEST / 11:30 CET)
 
-\- Second pipeline: `.github/workflows/daily_remote.yml` — remote jobs, 06:30 UTC
+\- Second pipeline: `.github/workflows/daily_remote.yml` — remote jobs, 11:00 UTC (= 13:00 CEST / 12:00 CET)
 
 
 
@@ -72,11 +72,11 @@ scores them against a consultant profile using Claude AI, and writes structured 
 
 \## GitHub Actions Setup
 
-\- Workflow file: `.github/workflows/daily_extract.yml` (freelance missions, 06:00 UTC)
+\- Workflow file: `.github/workflows/daily_extract.yml` (freelance missions, 10:30 UTC = 12:30 CEST)
 
-\- Workflow file: `.github/workflows/daily_remote.yml` (remote jobs, 06:30 UTC)
+\- Workflow file: `.github/workflows/daily_remote.yml` (remote jobs, 11:00 UTC = 13:00 CEST)
 
-\- Schedule: `cron: '0 6 * * *'` (06:00 UTC = 08:00 CEST in summer, 07:00 CET in winter)
+\- Schedule: `cron: '30 10 * * *'` (10:30 UTC = 12:30 CEST in summer, 11:30 CET in winter)
 
 \- Trigger: also supports `workflow_dispatch` for manual runs
 

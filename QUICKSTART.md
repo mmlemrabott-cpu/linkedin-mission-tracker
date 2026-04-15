@@ -186,7 +186,7 @@ There are **two workflows** to trigger manually on first run:
 2. Click **Run workflow** → **Run workflow** (green button)
 3. Wait 3–5 minutes → check the **Remote_YYYY-MM** tab in your sheet
 
-> After the first run, both workflows run automatically every day (06:00 and 06:30 UTC). You only need to trigger them manually once.
+> After the first run, both workflows run automatically every day (10:30 and 11:00 UTC). You only need to trigger them manually once.
 
 > If a run fails: click the failed run → scroll down → download the **run-logs** artifact → open the `.log` file for the exact error.
 
@@ -204,7 +204,7 @@ Results written             → Missions tab populated
 Dedup_Index updated         → prevents duplicates on all future runs
 ```
 
-## Subsequent runs (daily, 06:00 UTC)
+## Subsequent runs (daily, 10:30 UTC = 12:30 CEST)
 
 ```
 Profils_Cache hit           → no profile API call → fast startup

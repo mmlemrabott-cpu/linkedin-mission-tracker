@@ -2,7 +2,7 @@
 
 Daily automation that scrapes LinkedIn for freelance mission posts, scores them against your consultant profile using Claude AI, and writes results to Google Sheets.
 
-Runs automatically every day at **06:00 UTC** (08:00 CEST / 07:00 CET) via GitHub Actions.
+Runs automatically every day at **10:30 UTC** (12:30 CEST / 11:30 CET) via GitHub Actions.
 
 ---
 
@@ -209,7 +209,7 @@ There are **two workflows** — trigger them both manually for the first run:
 2. Click **Run workflow** → **Run workflow** (green button)
 3. Wait 3–5 minutes → check the **Remote_YYYY-MM** tab in your sheet
 
-> After the first run, both workflows run automatically every day (06:00 and 06:30 UTC). You only need to trigger them manually once.
+> After the first run, both workflows run automatically every day (10:30 and 11:00 UTC). You only need to trigger them manually once.
 
 > If a run fails: click the failed run → scroll down → download the **run-logs** artifact → open the `.log` file for the exact error message.
 
@@ -227,7 +227,7 @@ Results written             → Missions tab populated with scored posts
 Dedup_Index updated         → prevents duplicates on all future runs
 ```
 
-## Subsequent runs (daily, 06:00 UTC)
+## Subsequent runs (daily, 10:30 UTC = 12:30 CEST)
 
 ```
 Profils_Cache hit           → no profile API call → fast startup
@@ -297,8 +297,8 @@ run.py (orchestrator)
 Config priority: **Paramètres tab** (runtime, editable) → `config/settings.json` (bootstrap defaults)
 
 Two pipelines:
-- `daily_extract.yml` — 06:00 UTC — scrapes freelance missions → `Missions_YYYY-MM` tab
-- `daily_remote.yml` — 06:30 UTC — scrapes remote jobs → `Remote_YYYY-MM` tab
+- `daily_extract.yml` — 10:30 UTC (12:30 CEST) — scrapes freelance missions → `Missions_YYYY-MM` tab
+- `daily_remote.yml` — 11:00 UTC (13:00 CEST) — scrapes remote jobs → `Remote_YYYY-MM` tab
 
 ---
 
