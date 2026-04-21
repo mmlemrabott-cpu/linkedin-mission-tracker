@@ -1,10 +1,12 @@
 """
 scraper/bereach_scraper.py — BeReach API LinkedIn post scraper.
 
-Runs all keyword queries from config sequentially with a 12–18s random delay between
-each query, paginates while hasMore is True (up to max_posts_per_country), normalizes
-results into RawPost dicts, applies a 24h safety filter, deduplicates by URL and text
-hash, saves raw JSON to disk, and returns the merged final list.
+Runs keyword queries in batches of 2 with a 310s pause between batches to respect
+BeReach's observed rate limit (~2 requests per 5-minute sliding window). Within each
+batch, queries are separated by a 3–6s intra-batch delay. Each query paginates while
+hasMore is True (up to max_posts_per_country), normalizes results into RawPost dicts,
+applies a 24h safety filter, deduplicates by URL and text hash, saves raw JSON to
+disk, and returns the merged final list.
 
 Keywords are sent to BeReach as-is (no country suffix). Country filtering is
 handled downstream by Claude via the is_target_location field.
@@ -43,6 +45,14 @@ _MAX_429_RETRIES = 3
 # Base backoff delay (seconds) on first 429 retry — doubles each attempt: 10s → 20s → 40s
 _BACKOFF_BASE = 10.0
 
+# BeReach rate-limit batching: observed limit is ~2 requests per 5-minute sliding window.
+# Queries are grouped in batches of this size; after each full batch a long pause is
+# inserted so the earliest request in the previous batch falls outside the rolling window
+# before the next batch starts.
+_RATE_LIMIT_BATCH_SIZE = 2          # max queries per rate-limit window
+_RATE_LIMIT_BATCH_PAUSE = 310       # seconds to wait between batches (5 min + 10s margin)
+_RATE_LIMIT_INTRA_BATCH_DELAY = (3, 6)  # (min, max) seconds between queries within a batch
+
 
 def scrape_bereach(
     config: AppConfig,
@@ -54,11 +64,13 @@ def scrape_bereach(
     """
     Fetch LinkedIn posts from the BeReach API for all keywords in config.
 
-    Queries run sequentially with a 12–18s random delay between each to respect
-    BeReach rate limits. Each paginates while hasMore is True or until
-    max_posts_per_country is reached. Results are merged and deduplicated by URL
-    and text hash (within-run and cross-run). Saves raw results to
-    data/raw_posts_{YYYY-MM-DD}.json.
+    Queries run in batches of _RATE_LIMIT_BATCH_SIZE (default 2) to respect BeReach's
+    observed rate limit of ~2 requests per 5-minute sliding window. Within each batch
+    queries are separated by a short intra-batch delay (3–6s); between batches a
+    _RATE_LIMIT_BATCH_PAUSE (310s) is inserted so the rolling window resets. Each query
+    paginates while hasMore is True or until max_posts_per_country is reached. Results
+    are merged and deduplicated by URL and text hash (within-run and cross-run). Saves
+    raw results to data/raw_posts_{YYYY-MM-DD}.json.
 
     Keywords are sent to BeReach exactly as written in config — no country suffix
     is appended. Country filtering is delegated to Claude (is_target_location field).
@@ -87,22 +99,48 @@ def scrape_bereach(
         "Content-Type": "application/json",
     }
 
+    n_batches = (len(keyword_queries) + _RATE_LIMIT_BATCH_SIZE - 1) // _RATE_LIMIT_BATCH_SIZE
     logger.info(
-        "[bereach] Running %d keyword queries sequentially (12–18s delay between each).",
+        "[bereach] Running %d keyword queries in %d batch(es) of %d "
+        "(intra-batch delay %d–%ds, inter-batch pause %ds).",
         len(keyword_queries),
+        n_batches,
+        _RATE_LIMIT_BATCH_SIZE,
+        _RATE_LIMIT_INTRA_BATCH_DELAY[0],
+        _RATE_LIMIT_INTRA_BATCH_DELAY[1],
+        _RATE_LIMIT_BATCH_PAUSE,
     )
 
-    # Fetch all pages for each query sequentially with a random delay between queries.
-    # Sequential execution prevents retry backoffs from colliding with new requests,
-    # which caused cascading 429 errors when using parallel workers with a fixed stagger.
+    # BeReach enforces ~2 requests per 5-minute sliding window.
+    # Strategy: fire queries in batches of _RATE_LIMIT_BATCH_SIZE with a short intra-batch
+    # delay, then pause _RATE_LIMIT_BATCH_PAUSE seconds between batches so the oldest
+    # request in the previous batch has exited the rolling window before the next batch
+    # starts. This avoids cascading 429 errors that occurred with both parallel execution
+    # and short sequential delays.
     raw_batches: List[List[Dict[str, Any]]] = []
     for i, keywords in enumerate(keyword_queries):
+        position_in_batch = i % _RATE_LIMIT_BATCH_SIZE
+
         if i > 0:
-            delay = random.uniform(12, 18)
-            logger.debug(
-                "[bereach] Waiting %.1fs before next query to respect rate limit.", delay
-            )
-            time.sleep(delay)
+            if position_in_batch == 0:
+                # First query of a new batch — insert the inter-batch pause
+                logger.info(
+                    "[bereach] Batch %d/%d complete. Pausing %ds to respect "
+                    "BeReach rate limit window before next batch.",
+                    (i // _RATE_LIMIT_BATCH_SIZE),
+                    n_batches,
+                    _RATE_LIMIT_BATCH_PAUSE,
+                )
+                time.sleep(_RATE_LIMIT_BATCH_PAUSE)
+            else:
+                # Subsequent query within the same batch — short intra-batch delay
+                delay = random.uniform(*_RATE_LIMIT_INTRA_BATCH_DELAY)
+                logger.debug(
+                    "[bereach] Intra-batch delay %.1fs before query %d/%d.",
+                    delay, i + 1, len(keyword_queries),
+                )
+                time.sleep(delay)
+
         try:
             items = _fetch_all_pages(
                 keywords, headers, config.max_posts_per_country, logger

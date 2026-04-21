@@ -201,15 +201,15 @@ There are **two workflows** — trigger them both manually for the first run:
 1. In your fork, click the **Actions** tab (top navigation bar)
 2. In the left sidebar, click **Daily LinkedIn Freelance Mission Extract**
 3. On the right side of the page, click **Run workflow** → **Run workflow** (green button)
-4. Wait **4–6 minutes** → open your Google Sheet → check the **Missions_YYYY-MM** tab
+4. Wait **15–20 minutes** → open your Google Sheet → check the **Missions_YYYY-MM** tab
 
-> Keyword queries run sequentially with ~15s between each — a 6-keyword config takes ~90s for scraping alone. Total pipeline time is typically 4–6 minutes.
+> BeReach enforces ~2 requests per 5-minute window. Queries run in batches of 2 with a 310s pause between batches — a 6-keyword config takes ~11 minutes for scraping alone. Total pipeline time is typically 15–20 minutes.
 
 **Workflow 2 — Remote jobs → Remote tab**
 
 1. Still in **Actions**, click **Daily LinkedIn Remote Job Extract** in the left sidebar
 2. Click **Run workflow** → **Run workflow** (green button)
-3. Wait **4–6 minutes** → check the **Remote_YYYY-MM** tab in your sheet
+3. Wait **15–20 minutes** → check the **Remote_YYYY-MM** tab in your sheet
 
 > After the first run, both workflows run automatically every day (10:30 and 11:00 UTC). You only need to trigger them manually once.
 

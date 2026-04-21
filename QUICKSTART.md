@@ -178,13 +178,13 @@ There are **two workflows** to trigger manually on first run:
 1. In your fork, click the **Actions** tab (top navigation bar of your repo)
 2. In the left sidebar, click **Daily LinkedIn Freelance Mission Extract**
 3. On the right side, click **Run workflow** → **Run workflow** (green button)
-4. Wait **4–6 minutes** → open your sheet → check the **Missions_YYYY-MM** tab
+4. Wait **15–20 minutes** → open your sheet → check the **Missions_YYYY-MM** tab
 
 **Workflow 2 — Remote jobs**
 
 1. Still in **Actions**, click **Daily LinkedIn Remote Job Extract** in the left sidebar
 2. Click **Run workflow** → **Run workflow** (green button)
-3. Wait **4–6 minutes** → check the **Remote_YYYY-MM** tab in your sheet
+3. Wait **15–20 minutes** → check the **Remote_YYYY-MM** tab in your sheet
 
 > After the first run, both workflows run automatically every day (10:30 and 11:00 UTC). You only need to trigger them manually once.
 

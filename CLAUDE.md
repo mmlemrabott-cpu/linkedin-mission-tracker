@@ -40,7 +40,7 @@ scores them against a consultant profile using Claude AI, and writes structured 
 
 \- Never hardcode credentials. Always use `os.getenv()`.
 
-\- Handle BeReach rate limits: run keyword queries **sequentially** with a random delay of **12–18s between each query** (`random.uniform(12, 18)`). Do not run queries in parallel — retry backoffs collide with new requests and cause cascading HTTP 429 errors.
+\- Handle BeReach rate limits: BeReach enforces ~**2 requests per 5-minute sliding window**. Run keyword queries in **batches of 2** with a **310s pause between batches** and a **3–6s intra-batch delay** between the two queries. Never run queries in parallel — constants `_RATE_LIMIT_BATCH_SIZE`, `_RATE_LIMIT_BATCH_PAUSE`, and `_RATE_LIMIT_INTRA_BATCH_DELAY` in `bereach_scraper.py` control this behaviour.
 
 \- All functions must have docstrings and return typed values.
 
