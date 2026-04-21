@@ -21,7 +21,7 @@ The active scraper uses the BeReach API (`https://api.berea.ch/search/linkedin/p
 
 &nbsp;  - Country aliases: "France" → `France`, "Morocco" → `Maroc OR Morocco`
 
-3\. Run all queries in **batches of 2** with a **310s pause between batches** (3–6s intra-batch delay). BeReach enforces ~2 requests per 5-minute sliding window — batching ensures the oldest request in a batch has exited the rolling window before the next batch starts. Constants `_RATE_LIMIT_BATCH_SIZE / _RATE_LIMIT_BATCH_PAUSE / _RATE_LIMIT_INTRA_BATCH_DELAY` in `bereach_scraper.py` control this.
+3\. Run all queries **sequentially**, pacing each request using the `retryAfter` field returned by the BeReach API in every 200 response (official BeReach API v1.5.0 mechanism). A 3s safety margin is added on top. If `retryAfter` is 0, a minimal 3–6s random delay is used instead. On HTTP 429, `error.retryAfter` from the response body controls the retry delay; if absent, exponential fallback (30s→60s→120s) is used. The active API domain is `https://api.bereach.ai`.
 
 4\. Each query paginates (`start` offset) while `hasMore=True` and collected items < `max_posts_per_country`.
 

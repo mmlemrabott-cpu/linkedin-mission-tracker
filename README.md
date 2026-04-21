@@ -203,7 +203,7 @@ There are **two workflows** — trigger them both manually for the first run:
 3. On the right side of the page, click **Run workflow** → **Run workflow** (green button)
 4. Wait **15–20 minutes** → open your Google Sheet → check the **Missions_YYYY-MM** tab
 
-> BeReach enforces ~2 requests per 5-minute window. Queries run in batches of 2 with a 310s pause between batches — a 6-keyword config takes ~11 minutes for scraping alone. Total pipeline time is typically 15–20 minutes.
+> The scraper paces requests using the `retryAfter` field returned by the BeReach API after each query. Total pipeline time depends on your keyword count and the API's rate-limit hints, typically **15–20 minutes** for a standard config.
 
 **Workflow 2 — Remote jobs → Remote tab**
 

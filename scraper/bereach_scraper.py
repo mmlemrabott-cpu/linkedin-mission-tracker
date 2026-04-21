@@ -1,12 +1,17 @@
 """
 scraper/bereach_scraper.py — BeReach API LinkedIn post scraper.
 
-Runs keyword queries in batches of 2 with a 310s pause between batches to respect
-BeReach's observed rate limit (~2 requests per 5-minute sliding window). Within each
-batch, queries are separated by a 3–6s intra-batch delay. Each query paginates while
-hasMore is True (up to max_posts_per_country), normalizes results into RawPost dicts,
-applies a 24h safety filter, deduplicates by URL and text hash, saves raw JSON to
-disk, and returns the merged final list.
+Runs keyword queries sequentially, pacing each request using the `retryAfter`
+field returned by the BeReach API in every response (both 200 and 429). Each
+query paginates while hasMore is True (up to max_posts_per_country), normalizes
+results into RawPost dicts, applies a 24h safety filter, deduplicates by URL
+and text hash, saves raw JSON to disk, and returns the merged final list.
+
+Rate-limit design (per official BeReach API v1.5.0 docs):
+  - Successful 200 responses include `retryAfter` (int, seconds) — the number
+    of seconds to wait before sending the next request. When 0, no wait needed.
+  - HTTP 429 responses include `error.retryAfter` (int, seconds) — the exact
+    wait time before retrying. This replaces any hardcoded backoff.
 
 Keywords are sent to BeReach as-is (no country suffix). Country filtering is
 handled downstream by Claude via the is_target_location field.
@@ -29,8 +34,8 @@ from scraper.linkedin_scraper import (
     _text_hash,
 )
 
-# BeReach API base URL and endpoint
-_BASE_URL = "https://api.berea.ch"
+# BeReach API base URL and endpoint (official domain per API docs v1.5.0)
+_BASE_URL = "https://api.bereach.ai"
 _ENDPOINT = "/search/linkedin/posts"
 
 # Results per page (BeReach max is 50)
@@ -42,16 +47,13 @@ _REQUEST_TIMEOUT = 30
 # Maximum retry attempts on HTTP 429 before giving up on a single page request
 _MAX_429_RETRIES = 3
 
-# Base backoff delay (seconds) on first 429 retry — doubles each attempt: 10s → 20s → 40s
-_BACKOFF_BASE = 10.0
+# Fallback backoff (seconds) when the 429 response body contains no retryAfter.
+# Doubles each attempt: 30s → 60s → 120s.
+_BACKOFF_BASE = 30.0
 
-# BeReach rate-limit batching: observed limit is ~2 requests per 5-minute sliding window.
-# Queries are grouped in batches of this size; after each full batch a long pause is
-# inserted so the earliest request in the previous batch falls outside the rolling window
-# before the next batch starts.
-_RATE_LIMIT_BATCH_SIZE = 2          # max queries per rate-limit window
-_RATE_LIMIT_BATCH_PAUSE = 310       # seconds to wait between batches (5 min + 10s margin)
-_RATE_LIMIT_INTRA_BATCH_DELAY = (3, 6)  # (min, max) seconds between queries within a batch
+# Safety margin (seconds) added on top of the API-provided retryAfter value to
+# account for clock skew and network latency.
+_RETRY_AFTER_MARGIN = 3
 
 
 def scrape_bereach(
@@ -64,34 +66,41 @@ def scrape_bereach(
     """
     Fetch LinkedIn posts from the BeReach API for all keywords in config.
 
-    Queries run in batches of _RATE_LIMIT_BATCH_SIZE (default 2) to respect BeReach's
-    observed rate limit of ~2 requests per 5-minute sliding window. Within each batch
-    queries are separated by a short intra-batch delay (3–6s); between batches a
-    _RATE_LIMIT_BATCH_PAUSE (310s) is inserted so the rolling window resets. Each query
-    paginates while hasMore is True or until max_posts_per_country is reached. Results
-    are merged and deduplicated by URL and text hash (within-run and cross-run). Saves
-    raw results to data/raw_posts_{YYYY-MM-DD}.json.
+    Queries run sequentially. After each successful response the `retryAfter`
+    field from the response body controls how long to wait before the next
+    request — this is the official BeReach rate-limit mechanism. On HTTP 429
+    the `error.retryAfter` field provides the exact retry delay.
 
-    Keywords are sent to BeReach exactly as written in config — no country suffix
-    is appended. Country filtering is delegated to Claude (is_target_location field).
+    Each query paginates while hasMore is True or until max_posts_per_country
+    is reached. Results are merged and deduplicated by URL and text hash
+    (within-run and cross-run). Saves raw results to
+    data/raw_posts_{YYYY-MM-DD}.json.
+
+    Keywords are sent to BeReach exactly as written in config — no country
+    suffix is appended. Country filtering is delegated to Claude
+    (is_target_location field).
 
     Args:
-        config: Application configuration (provides bereach_api_token, search_keywords,
-                max_posts_per_country).
+        config: Application configuration (provides bereach_api_token,
+                search_keywords, max_posts_per_country).
         logger: Logger instance.
         seen_urls: Optional set of post URLs already written in previous runs.
-        seen_hashes: Optional set of text hashes already written in previous runs.
-        keyword_override: If provided, use these keywords instead of config.search_keywords.
-                          Used by the remote jobs pipeline (RUN_MODE=job).
+        seen_hashes: Optional set of text hashes already written in previous
+                     runs.
+        keyword_override: If provided, use these keywords instead of
+                          config.search_keywords. Used by the remote jobs
+                          pipeline (RUN_MODE=job).
 
     Returns:
-        List of deduplicated RawPost dicts, all published within the last 24 hours.
+        List of deduplicated RawPost dicts, all published within the last
+        24 hours.
     """
     seen_urls_global: Set[str] = seen_urls if seen_urls is not None else set()
     seen_hashes_global: Set[str] = seen_hashes if seen_hashes is not None else set()
 
-    # Use keyword_override if provided (remote jobs pipeline), else fall back to config
-    keyword_queries: List[str] = list(keyword_override) if keyword_override else list(config.search_keywords)
+    keyword_queries: List[str] = (
+        list(keyword_override) if keyword_override else list(config.search_keywords)
+    )
 
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     headers = {
@@ -99,60 +108,45 @@ def scrape_bereach(
         "Content-Type": "application/json",
     }
 
-    n_batches = (len(keyword_queries) + _RATE_LIMIT_BATCH_SIZE - 1) // _RATE_LIMIT_BATCH_SIZE
     logger.info(
-        "[bereach] Running %d keyword queries in %d batch(es) of %d "
-        "(intra-batch delay %d–%ds, inter-batch pause %ds).",
+        "[bereach] Running %d keyword queries sequentially "
+        "(paced by API retryAfter field).",
         len(keyword_queries),
-        n_batches,
-        _RATE_LIMIT_BATCH_SIZE,
-        _RATE_LIMIT_INTRA_BATCH_DELAY[0],
-        _RATE_LIMIT_INTRA_BATCH_DELAY[1],
-        _RATE_LIMIT_BATCH_PAUSE,
     )
 
-    # BeReach enforces ~2 requests per 5-minute sliding window.
-    # Strategy: fire queries in batches of _RATE_LIMIT_BATCH_SIZE with a short intra-batch
-    # delay, then pause _RATE_LIMIT_BATCH_PAUSE seconds between batches so the oldest
-    # request in the previous batch has exited the rolling window before the next batch
-    # starts. This avoids cascading 429 errors that occurred with both parallel execution
-    # and short sequential delays.
+    # Sequential execution — each request uses the retryAfter value from the
+    # previous response to know exactly when the next request is allowed.
     raw_batches: List[List[Dict[str, Any]]] = []
     for i, keywords in enumerate(keyword_queries):
-        position_in_batch = i % _RATE_LIMIT_BATCH_SIZE
-
-        if i > 0:
-            if position_in_batch == 0:
-                # First query of a new batch — insert the inter-batch pause
-                logger.info(
-                    "[bereach] Batch %d/%d complete. Pausing %ds to respect "
-                    "BeReach rate limit window before next batch.",
-                    (i // _RATE_LIMIT_BATCH_SIZE),
-                    n_batches,
-                    _RATE_LIMIT_BATCH_PAUSE,
-                )
-                time.sleep(_RATE_LIMIT_BATCH_PAUSE)
-            else:
-                # Subsequent query within the same batch — short intra-batch delay
-                delay = random.uniform(*_RATE_LIMIT_INTRA_BATCH_DELAY)
-                logger.debug(
-                    "[bereach] Intra-batch delay %.1fs before query %d/%d.",
-                    delay, i + 1, len(keyword_queries),
-                )
-                time.sleep(delay)
-
         try:
-            items = _fetch_all_pages(
+            items, retry_after = _fetch_all_pages(
                 keywords, headers, config.max_posts_per_country, logger
             )
             raw_batches.append(items)
         except Exception as exc:
-            logger.error("[bereach] Query failed — keywords='%s': %s", keywords, exc)
+            logger.error(
+                "[bereach] Query failed — keywords='%.60s...': %s", keywords, exc
+            )
             raw_batches.append([])
+            retry_after = 0
 
-    # Merge and deduplicate across both batches
-    seen_urls_run: set = set()
-    seen_text_hashes_run: set = set()
+        # Respect the retryAfter hint from the last response before the next query
+        if i < len(keyword_queries) - 1:
+            wait = retry_after + _RETRY_AFTER_MARGIN if retry_after > 0 else random.uniform(3, 6)
+            if retry_after > 0:
+                logger.info(
+                    "[bereach] API retryAfter=%ds — waiting %ds before next query.",
+                    retry_after, wait,
+                )
+            else:
+                logger.debug(
+                    "[bereach] No retryAfter hint — minimal delay %.1fs.", wait
+                )
+            time.sleep(wait)
+
+    # Merge and deduplicate
+    seen_urls_run: Set[str] = set()
+    seen_text_hashes_run: Set[str] = set()
     all_posts: List[RawPost] = []
 
     for raw_items in raw_batches:
@@ -167,13 +161,19 @@ def scrape_bereach(
                 continue
             text_hash = _text_hash(post["post_text"])
             if text_hash in seen_text_hashes_run:
-                logger.debug("[bereach] near-duplicate text skipped: %s", post["post_url"])
+                logger.debug(
+                    "[bereach] near-duplicate text skipped: %s", post["post_url"]
+                )
                 continue
             if post["post_url"] in seen_urls_global:
-                logger.debug("[bereach] cross-run duplicate URL skipped: %s", post["post_url"])
+                logger.debug(
+                    "[bereach] cross-run duplicate URL skipped: %s", post["post_url"]
+                )
                 continue
             if text_hash in seen_hashes_global:
-                logger.debug("[bereach] cross-run repost skipped: %s", post["post_url"])
+                logger.debug(
+                    "[bereach] cross-run repost skipped: %s", post["post_url"]
+                )
                 continue
 
             seen_urls_run.add(post["post_url"])
@@ -190,14 +190,13 @@ def _fetch_all_pages(
     headers: Dict[str, str],
     max_posts: int,
     logger: logging.Logger,
-) -> List[Dict[str, Any]]:
+) -> tuple[List[Dict[str, Any]], int]:
     """
     Fetch all paginated results for a single keyword query from the BeReach API.
 
-    Paginates while hasMore is True and the collected item count is below max_posts.
-    Adds a random delay between pages to respect rate limits. Each individual page
-    request is wrapped in _post_with_retry which handles HTTP 429 with exponential
-    backoff (10s → 20s → 40s, up to _MAX_429_RETRIES retries).
+    Paginates while hasMore is True and the collected item count is below
+    max_posts. Returns both the collected items and the last retryAfter value
+    from the API so the caller can pace the next query correctly.
 
     Args:
         keywords: Boolean keyword query string.
@@ -206,15 +205,18 @@ def _fetch_all_pages(
         logger: Logger instance.
 
     Returns:
-        List of raw item dicts from the API response.
+        Tuple of (list of raw item dicts, retryAfter seconds from last response).
     """
     collected: List[Dict[str, Any]] = []
     start = 0
     page = 0
+    last_retry_after = 0
 
     while len(collected) < max_posts:
         if page > 0:
-            time.sleep(random.uniform(0.5, 1.5))
+            # Brief inter-page delay; retryAfter from previous page is already
+            # respected by the outer loop before the next keyword query.
+            time.sleep(random.uniform(1, 3))
 
         payload: Dict[str, Any] = {
             "keywords": keywords,
@@ -231,10 +233,12 @@ def _fetch_all_pages(
         items = data.get("items", [])
         has_more = data.get("hasMore", False)
         credits_used = data.get("creditsUsed", 0)
+        last_retry_after = int(data.get("retryAfter") or 0)
 
         logger.info(
-            "[bereach] keywords='%.60s...' start=%d → %d items (hasMore=%s, credits=%s)",
-            keywords, start, len(items), has_more, credits_used,
+            "[bereach] keywords='%.60s...' start=%d → %d items "
+            "(hasMore=%s, credits=%s, retryAfter=%ds)",
+            keywords, start, len(items), has_more, credits_used, last_retry_after,
         )
 
         collected.extend(items)
@@ -245,7 +249,7 @@ def _fetch_all_pages(
         start += _PAGE_SIZE
         page += 1
 
-    return collected
+    return collected, last_retry_after
 
 
 def _post_with_retry(
@@ -255,11 +259,12 @@ def _post_with_retry(
     logger: logging.Logger,
 ) -> Optional[Dict[str, Any]]:
     """
-    POST to the BeReach API with exponential-backoff retry on HTTP 429.
+    POST to the BeReach API with retry on HTTP 429.
 
-    Retries up to _MAX_429_RETRIES times on 429 responses. Backoff doubles each
-    attempt: 10s → 20s → 40s. Non-429 HTTP errors and network errors abort
-    immediately without retry.
+    On HTTP 429 the response body is parsed for `error.retryAfter` (the exact
+    number of seconds to wait, per official BeReach API docs). If absent, a
+    fallback exponential backoff is used (30s → 60s → 120s). Non-429 errors
+    abort immediately.
 
     Args:
         keywords: Keyword query string (used only for log messages).
@@ -270,13 +275,13 @@ def _post_with_retry(
     Returns:
         Parsed JSON response dict, or None if all attempts failed.
     """
-    start = payload.get("start", 0)
+    start_offset = payload.get("start", 0)
 
-    for attempt in range(1, _MAX_429_RETRIES + 2):  # 1 initial attempt + up to 3 retries
+    for attempt in range(1, _MAX_429_RETRIES + 2):  # 1 initial + up to 3 retries
         try:
             logger.debug(
                 "[bereach] POST %s%s keywords='%.60s...' start=%d (attempt %d)",
-                _BASE_URL, _ENDPOINT, keywords, start, attempt,
+                _BASE_URL, _ENDPOINT, keywords, start_offset, attempt,
             )
             resp = requests.post(
                 f"{_BASE_URL}{_ENDPOINT}",
@@ -289,31 +294,53 @@ def _post_with_retry(
 
         except requests.exceptions.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else 0
+
             if status == 429 and attempt <= _MAX_429_RETRIES:
-                backoff = _BACKOFF_BASE * (2 ** (attempt - 1))
-                logger.warning(
-                    "[bereach] HTTP 429 (keywords='%.60s...', start=%d) — "
-                    "retry %d/%d in %.0fs",
-                    keywords, start, attempt, _MAX_429_RETRIES, backoff,
-                )
-                time.sleep(backoff)
+                # Read retryAfter from the 429 response body (official BeReach mechanism)
+                retry_after_api = 0
+                try:
+                    body = exc.response.json()
+                    retry_after_api = int(
+                        (body.get("error") or {}).get("retryAfter") or 0
+                    )
+                except Exception:
+                    retry_after_api = 0
+
+                if retry_after_api > 0:
+                    wait = retry_after_api + _RETRY_AFTER_MARGIN
+                    logger.warning(
+                        "[bereach] HTTP 429 (keywords='%.60s...', start=%d) — "
+                        "API retryAfter=%ds, waiting %ds (retry %d/%d).",
+                        keywords, start_offset,
+                        retry_after_api, wait, attempt, _MAX_429_RETRIES,
+                    )
+                else:
+                    wait = _BACKOFF_BASE * (2 ** (attempt - 1))
+                    logger.warning(
+                        "[bereach] HTTP 429 (keywords='%.60s...', start=%d) — "
+                        "no retryAfter in body, fallback backoff %.0fs (retry %d/%d).",
+                        keywords, start_offset, wait, attempt, _MAX_429_RETRIES,
+                    )
+
+                time.sleep(wait)
                 continue
+
             logger.error(
                 "[bereach] HTTP %d error (keywords='%.60s...', start=%d): %s",
-                status, keywords, start, exc,
+                status, keywords, start_offset, exc,
             )
             return None
 
         except Exception as exc:
             logger.error(
                 "[bereach] Request failed (keywords='%.60s...', start=%d): %s",
-                keywords, start, exc,
+                keywords, start_offset, exc,
             )
             return None
 
     logger.error(
         "[bereach] Gave up after %d retries on 429 (keywords='%.60s...', start=%d)",
-        _MAX_429_RETRIES, keywords, start,
+        _MAX_429_RETRIES, keywords, start_offset,
     )
     return None
 
@@ -342,7 +369,9 @@ def _normalize_bereach_post(item: Dict[str, Any]) -> Optional[RawPost]:
     raw_date = item.get("date")
     if raw_date and isinstance(raw_date, (int, float)):
         try:
-            post_date = datetime.fromtimestamp(raw_date / 1000, tz=timezone.utc).isoformat()
+            post_date = datetime.fromtimestamp(
+                raw_date / 1000, tz=timezone.utc
+            ).isoformat()
         except (OSError, OverflowError, ValueError):
             post_date = datetime.now(timezone.utc).isoformat()
     else:

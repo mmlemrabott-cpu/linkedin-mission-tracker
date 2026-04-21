@@ -180,6 +180,8 @@ There are **two workflows** to trigger manually on first run:
 3. On the right side, click **Run workflow** → **Run workflow** (green button)
 4. Wait **15–20 minutes** → open your sheet → check the **Missions_YYYY-MM** tab
 
+> The scraper paces each BeReach API request using the API's own `retryAfter` hint. Total runtime depends on keyword count and rate-limit responses.
+
 **Workflow 2 — Remote jobs**
 
 1. Still in **Actions**, click **Daily LinkedIn Remote Job Extract** in the left sidebar
