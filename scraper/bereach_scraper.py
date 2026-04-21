@@ -1,10 +1,10 @@
 """
 scraper/bereach_scraper.py — BeReach API LinkedIn post scraper.
 
-Runs all keyword queries from config in parallel via ThreadPoolExecutor, paginates each
-while hasMore is True (up to max_posts_per_country), normalizes results into
-RawPost dicts, applies a 24h safety filter, deduplicates by URL and text hash,
-saves raw JSON to disk, and returns the merged final list.
+Runs all keyword queries from config sequentially with a 12–18s random delay between
+each query, paginates while hasMore is True (up to max_posts_per_country), normalizes
+results into RawPost dicts, applies a 24h safety filter, deduplicates by URL and text
+hash, saves raw JSON to disk, and returns the merged final list.
 
 Keywords are sent to BeReach as-is (no country suffix). Country filtering is
 handled downstream by Claude via the is_target_location field.
@@ -13,7 +13,6 @@ handled downstream by Claude via the is_target_location field.
 import logging
 import random
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -55,7 +54,8 @@ def scrape_bereach(
     """
     Fetch LinkedIn posts from the BeReach API for all keywords in config.
 
-    All queries run concurrently. Each paginates while hasMore is True or until
+    Queries run sequentially with a 12–18s random delay between each to respect
+    BeReach rate limits. Each paginates while hasMore is True or until
     max_posts_per_country is reached. Results are merged and deduplicated by URL
     and text hash (within-run and cross-run). Saves raw results to
     data/raw_posts_{YYYY-MM-DD}.json.
@@ -88,29 +88,29 @@ def scrape_bereach(
     }
 
     logger.info(
-        "[bereach] Running %d keyword queries in parallel.", len(keyword_queries)
+        "[bereach] Running %d keyword queries sequentially (12–18s delay between each).",
+        len(keyword_queries),
     )
 
-    # Fetch all pages for each query in parallel, staggered by 10s to avoid 429.
-    # 10s gap ensures earlier workers' pagination requests don't collide with
-    # later workers' first requests under BeReach's per-minute rate limit.
-    with ThreadPoolExecutor(max_workers=len(keyword_queries)) as executor:
-        futures = {
-            executor.submit(
-                _fetch_all_pages, keywords, headers, config.max_posts_per_country, logger,
-                initial_delay=i * 10.0,
-            ): keywords
-            for i, keywords in enumerate(keyword_queries)
-        }
-        raw_batches: List[List[Dict[str, Any]]] = []
-        for future in as_completed(futures):
-            keywords = futures[future]
-            try:
-                items = future.result()
-                raw_batches.append(items)
-            except Exception as exc:
-                logger.error("[bereach] Query failed — keywords='%s': %s", keywords, exc)
-                raw_batches.append([])
+    # Fetch all pages for each query sequentially with a random delay between queries.
+    # Sequential execution prevents retry backoffs from colliding with new requests,
+    # which caused cascading 429 errors when using parallel workers with a fixed stagger.
+    raw_batches: List[List[Dict[str, Any]]] = []
+    for i, keywords in enumerate(keyword_queries):
+        if i > 0:
+            delay = random.uniform(12, 18)
+            logger.debug(
+                "[bereach] Waiting %.1fs before next query to respect rate limit.", delay
+            )
+            time.sleep(delay)
+        try:
+            items = _fetch_all_pages(
+                keywords, headers, config.max_posts_per_country, logger
+            )
+            raw_batches.append(items)
+        except Exception as exc:
+            logger.error("[bereach] Query failed — keywords='%s': %s", keywords, exc)
+            raw_batches.append([])
 
     # Merge and deduplicate across both batches
     seen_urls_run: set = set()
@@ -152,7 +152,6 @@ def _fetch_all_pages(
     headers: Dict[str, str],
     max_posts: int,
     logger: logging.Logger,
-    initial_delay: float = 0.0,
 ) -> List[Dict[str, Any]]:
     """
     Fetch all paginated results for a single keyword query from the BeReach API.
@@ -167,15 +166,10 @@ def _fetch_all_pages(
         headers: HTTP headers including Authorization.
         max_posts: Maximum number of raw items to collect.
         logger: Logger instance.
-        initial_delay: Seconds to wait before the first request (used to stagger
-                       parallel calls and avoid simultaneous 429 errors).
 
     Returns:
         List of raw item dicts from the API response.
     """
-    if initial_delay > 0:
-        time.sleep(initial_delay)
-
     collected: List[Dict[str, Any]] = []
     start = 0
     page = 0
