@@ -76,7 +76,7 @@ Use LinkedIn boolean syntax: `AND`, `OR`, quoted phrases for exact matches.
 
 BeReach scrapes LinkedIn posts and fetches LinkedIn profiles.
 
-1. Go to **[bereach.co](https://bereach.co)** → create an account
+1. Go to **[bereach.ai](https://bereach.ai/)** → create an account
 2. Choose a plan (paid recommended for daily use — free tier has volume limits)
 3. After login: **Dashboard → API** or **Settings → API Tokens**
 4. Copy your token (long alphanumeric string)

@@ -89,7 +89,7 @@ You need tokens from **2 services** (BeReach and Anthropic):
 
 BeReach scrapes LinkedIn posts and fetches LinkedIn profiles.
 
-1. Go to **[bereach.co](https://bereach.co)** and create an account
+1. Go to **[bereach.ai](https://bereach.ai/)** and create an account
 2. Choose a plan — a paid plan is recommended for daily use (free tier has volume limits)
 3. After login, go to your **Dashboard → API** (or **Settings → API Tokens**)
 4. Copy your **API token** — it looks like a long alphanumeric string
