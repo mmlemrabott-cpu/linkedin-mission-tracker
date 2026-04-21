@@ -21,7 +21,7 @@ The active scraper uses the BeReach API (`https://api.berea.ch/search/linkedin/p
 
 &nbsp;  - Country aliases: "France" → `France`, "Morocco" → `Maroc OR Morocco`
 
-3\. Run all queries concurrently via `ThreadPoolExecutor`, staggered by 5s to avoid 429 errors.
+3\. Run all queries **sequentially** with a random delay of **12–18s between each query** to respect BeReach rate limits. Parallel execution caused retry backoffs to collide with new requests, triggering cascading HTTP 429 errors.
 
 4\. Each query paginates (`start` offset) while `hasMore=True` and collected items < `max_posts_per_country`.
 

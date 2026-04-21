@@ -178,13 +178,13 @@ There are **two workflows** to trigger manually on first run:
 1. In your fork, click the **Actions** tab (top navigation bar of your repo)
 2. In the left sidebar, click **Daily LinkedIn Freelance Mission Extract**
 3. On the right side, click **Run workflow** → **Run workflow** (green button)
-4. Wait 3–5 minutes → open your sheet → check the **Missions_YYYY-MM** tab
+4. Wait **4–6 minutes** → open your sheet → check the **Missions_YYYY-MM** tab
 
 **Workflow 2 — Remote jobs**
 
 1. Still in **Actions**, click **Daily LinkedIn Remote Job Extract** in the left sidebar
 2. Click **Run workflow** → **Run workflow** (green button)
-3. Wait 3–5 minutes → check the **Remote_YYYY-MM** tab in your sheet
+3. Wait **4–6 minutes** → check the **Remote_YYYY-MM** tab in your sheet
 
 > After the first run, both workflows run automatically every day (10:30 and 11:00 UTC). You only need to trigger them manually once.
 
@@ -223,6 +223,7 @@ New results appended        → Missions tab grows daily
 | `APIError: 403` on Sheets | Sheet not shared | Share with the `client_email` from JSON key (Step 4.6) |
 | `json.JSONDecodeError` | Newlines in JSON secret | Re-run the one-liner from Step 4.5 — output must be one line |
 | 0 posts returned | Keywords too narrow | Check log artifact; try broader keywords |
+| `HTTP 429` errors in logs | BeReach rate limit hit | Already handled automatically — scraper retries with backoff. If persistent, reduce keyword count in `Paramètres` |
 | Score always 0 | Profile URL not public | Open the profile URL in a private browser — must be accessible without login |
 
 For more detail, see [README.md](README.md).

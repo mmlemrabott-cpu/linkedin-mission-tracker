@@ -40,7 +40,7 @@ scores them against a consultant profile using Claude AI, and writes structured 
 
 \- Never hardcode credentials. Always use `os.getenv()`.
 
-\- Handle LinkedIn rate limits: add random delays of 2–5s between requests.
+\- Handle BeReach rate limits: run keyword queries **sequentially** with a random delay of **12–18s between each query** (`random.uniform(12, 18)`). Do not run queries in parallel — retry backoffs collide with new requests and cause cascading HTTP 429 errors.
 
 \- All functions must have docstrings and return typed values.
 

@@ -201,13 +201,15 @@ There are **two workflows** — trigger them both manually for the first run:
 1. In your fork, click the **Actions** tab (top navigation bar)
 2. In the left sidebar, click **Daily LinkedIn Freelance Mission Extract**
 3. On the right side of the page, click **Run workflow** → **Run workflow** (green button)
-4. Wait 3–5 minutes → open your Google Sheet → check the **Missions_YYYY-MM** tab
+4. Wait **4–6 minutes** → open your Google Sheet → check the **Missions_YYYY-MM** tab
+
+> Keyword queries run sequentially with ~15s between each — a 6-keyword config takes ~90s for scraping alone. Total pipeline time is typically 4–6 minutes.
 
 **Workflow 2 — Remote jobs → Remote tab**
 
 1. Still in **Actions**, click **Daily LinkedIn Remote Job Extract** in the left sidebar
 2. Click **Run workflow** → **Run workflow** (green button)
-3. Wait 3–5 minutes → check the **Remote_YYYY-MM** tab in your sheet
+3. Wait **4–6 minutes** → check the **Remote_YYYY-MM** tab in your sheet
 
 > After the first run, both workflows run automatically every day (10:30 and 11:00 UTC). You only need to trigger them manually once.
 
@@ -266,6 +268,7 @@ New results appended        → Missions tab grows daily
 | `APIError: 403` on Sheets | Sheet not shared with service account | Share the sheet with the `client_email` from your JSON key (Step 4.6) |
 | `json.JSONDecodeError` on startup | Newlines in `GOOGLE_SERVICE_ACCOUNT_JSON` | Re-run the Python one-liner from Step 4.5 — result must be one line |
 | 0 posts returned | Keywords too narrow | Check `logs/run_YYYY-MM-DD.log` artifact; try broader keywords |
+| `HTTP 429` errors in logs | BeReach rate limit hit | Already handled automatically — scraper retries with backoff. If persistent, reduce keyword count in `Paramètres` |
 | Score always 0 | Profile URL not reachable | Verify `profil` URL in Paramètres opens without login in a private browser |
 | Workflow not visible in Actions | GitHub indexing delay | Make a small change to any workflow file and push |
 
