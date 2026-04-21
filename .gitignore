@@ -23,3 +23,6 @@ Thumbs.db
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+
+# Claude project instructions — local only, not for version control
+CLAUDE.md
