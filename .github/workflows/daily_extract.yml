@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+    permissions:
+      contents: write  # Required to commit docs/usage.json back to the repo
 
     steps:
       - name: Checkout repository
@@ -39,8 +41,18 @@ jobs:
           APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
         run: python run.py
 
+      - name: Commit usage stats
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin master
+          git add docs/usage.json
+          git diff --staged --quiet || git commit -m "chore: usage stats $(date -u +%Y-%m-%d) [skip ci]"
+          git push
+
       - name: Upload run logs
-        if: always()  # Upload even if the pipeline step failed â€” critical for debugging
+        if: always()  # Upload even if the pipeline step failed — critical for debugging
         uses: actions/upload-artifact@v4
         with:
           name: run-logs-${{ github.run_id }}

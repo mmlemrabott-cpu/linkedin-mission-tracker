@@ -9,7 +9,7 @@ Uses the Apify REST API directly via `requests` — no apify-client library
 dependency, avoiding transitive version-conflict issues.
 
 Endpoint used:
-  POST /v2/acts/{actorId}/runs/sync-get-dataset-items?token={token}&timeout=300
+  POST /v2/acts/{actorId}/run-sync-get-dataset-items?token={token}&timeout=300
   This synchronous endpoint runs the actor and streams dataset items back once
   the run completes (or times out after `timeout` seconds).
 
@@ -24,6 +24,8 @@ Design:
   - Deduplication (URL + text hash) is applied both within-run and
     cross-run (via the seen_urls / seen_hashes sets from Dedup_Index).
   - Raw results are saved to data/raw_posts_{YYYY-MM-DD}.json for debugging.
+  - After the sync call, the most recent completed run is fetched to capture
+    the real Apify cost (usageTotalUsd). This powers the usage dashboard.
 
 Field mapping (Apify → RawPost):
   url               → post_url
@@ -40,8 +42,9 @@ Field mapping (Apify → RawPost):
 """
 
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote
 
 import requests
@@ -76,6 +79,20 @@ _LINKEDIN_SEARCH_URL_TEMPLATE = (
 )
 
 
+class ApifyRunStats(dict):
+    """
+    Stats dict returned alongside the posts list by scrape_apify().
+
+    Keys:
+        posts_raw: int          — items returned by Apify before any filtering
+        posts_unique: int       — after 24h filter + deduplication
+        keywords_count: int     — number of keyword URLs sent to the actor
+        cost_usd: float         — real cost from Apify billing API (-1 if unavailable)
+        duration_seconds: float — wall-clock time for the Apify actor call
+        status: str             — "success" or "error"
+    """
+
+
 def _keyword_to_linkedin_url(keyword: str) -> str:
     """
     Convert a boolean keyword string to a LinkedIn content search URL.
@@ -93,13 +110,44 @@ def _keyword_to_linkedin_url(keyword: str) -> str:
     return _LINKEDIN_SEARCH_URL_TEMPLATE.format(encoded_keywords=encoded)
 
 
+def _fetch_last_run_cost(token: str, logger: logging.Logger) -> float:
+    """
+    Fetch the USD cost of the most recently completed Apify actor run.
+
+    Queries GET /v2/acts/{actorId}/runs?limit=1&status=SUCCEEDED to retrieve
+    the last successful run and extract usageTotalUsd.
+
+    Args:
+        token: Apify API token.
+        logger: Logger instance.
+
+    Returns:
+        Cost in USD as a float, or -1.0 if the value cannot be retrieved.
+    """
+    try:
+        resp = requests.get(
+            f"{_APIFY_BASE_URL}/acts/{_ACTOR_ID}/runs",
+            params={"token": token, "limit": 1, "status": "SUCCEEDED"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {}).get("items", [])
+        if data:
+            cost = data[0].get("usageTotalUsd")
+            if cost is not None:
+                return float(cost)
+    except Exception as exc:
+        logger.debug("[apify] Could not fetch run cost from billing API: %s", exc)
+    return -1.0
+
+
 def scrape_apify(
     config: AppConfig,
     logger: logging.Logger,
     seen_urls: Optional[Set[str]] = None,
     seen_hashes: Optional[Set[str]] = None,
     keyword_override: Optional[List[str]] = None,
-) -> List[RawPost]:
+) -> Tuple[List[RawPost], ApifyRunStats]:
     """
     Fetch LinkedIn posts from the Apify `supreme_coder/linkedin-post` actor.
 
@@ -126,8 +174,8 @@ def scrape_apify(
                           pipeline (RUN_MODE=job).
 
     Returns:
-        List of deduplicated RawPost dicts, all published within the last
-        24 hours.
+        Tuple of (deduplicated RawPost list, ApifyRunStats dict).
+        All posts are published within the last 24 hours.
     """
     seen_urls_global: Set[str] = seen_urls if seen_urls is not None else set()
     seen_hashes_global: Set[str] = seen_hashes if seen_hashes is not None else set()
@@ -136,9 +184,14 @@ def scrape_apify(
         list(keyword_override) if keyword_override else list(config.search_keywords)
     )
 
+    _error_stats = ApifyRunStats(
+        posts_raw=0, posts_unique=0, keywords_count=len(keyword_queries),
+        cost_usd=-1.0, duration_seconds=0.0, status="error",
+    )
+
     if not keyword_queries:
         logger.warning("[apify] No keyword queries configured — returning empty list.")
-        return []
+        return [], _error_stats
 
     # Convert keyword strings to LinkedIn search URLs
     linkedin_urls = [_keyword_to_linkedin_url(kw) for kw in keyword_queries]
@@ -165,9 +218,10 @@ def scrape_apify(
         f"?token={config.apify_api_token}&timeout={_ACTOR_SYNC_TIMEOUT_SECONDS}"
     )
 
+    t0 = time.time()
     try:
         logger.info(
-            "[apify] POST sync-get-dataset-items (HTTP timeout=%ds, actor timeout=%ds).",
+            "[apify] POST run-sync-get-dataset-items (HTTP timeout=%ds, actor timeout=%ds).",
             _HTTP_REQUEST_TIMEOUT,
             _ACTOR_SYNC_TIMEOUT_SECONDS,
         )
@@ -184,10 +238,12 @@ def scrape_apify(
             exc.response.status_code if exc.response is not None else 0,
             exc,
         )
-        return []
+        return [], _error_stats
     except Exception as exc:
         logger.error("[apify] Actor run failed: %s", exc)
-        return []
+        return [], _error_stats
+
+    duration = time.time() - t0
 
     if not isinstance(raw_items, list):
         logger.error(
@@ -195,9 +251,17 @@ def scrape_apify(
             type(raw_items).__name__,
             str(raw_items)[:200],
         )
-        return []
+        return [], _error_stats
 
-    logger.info("[apify] Retrieved %d raw item(s) from actor run.", len(raw_items))
+    posts_raw = len(raw_items)
+    logger.info("[apify] Retrieved %d raw item(s) from actor run (%.1fs).", posts_raw, duration)
+
+    # Fetch real billing cost from Apify runs API
+    cost_usd = _fetch_last_run_cost(config.apify_api_token, logger)
+    if cost_usd >= 0:
+        logger.info("[apify] Apify run cost: $%.4f USD.", cost_usd)
+    else:
+        logger.debug("[apify] Apify billing cost unavailable — will show N/A in dashboard.")
 
     # Normalise, filter, and deduplicate
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -229,9 +293,19 @@ def scrape_apify(
         seen_text_hashes_run.add(text_hash)
         all_posts.append(post)
 
-    logger.info("[apify] Total unique posts within 24h: %d", len(all_posts))
+    posts_unique = len(all_posts)
+    logger.info("[apify] Total unique posts within 24h: %d", posts_unique)
     _save_raw_posts(all_posts, date_str, logger)
-    return all_posts
+
+    stats = ApifyRunStats(
+        posts_raw=posts_raw,
+        posts_unique=posts_unique,
+        keywords_count=len(keyword_queries),
+        cost_usd=cost_usd,
+        duration_seconds=round(duration, 1),
+        status="success",
+    )
+    return all_posts, stats
 
 
 def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:

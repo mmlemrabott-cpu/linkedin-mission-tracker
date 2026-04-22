@@ -14,6 +14,7 @@ Can also be run locally: `python run.py`
 import logging
 import os
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,7 +87,9 @@ def main() -> None:
     On any unhandled exception: logs full traceback and exits with code 1
     so GitHub Actions marks the run as failed.
     """
+    pipeline_start = time.time()
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    run_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     logger = setup_logging(date_str)
 
     logger.info("=" * 60)
@@ -106,6 +109,7 @@ def main() -> None:
         from scraper import scrape_apify
         from matcher import score_posts, fetch_profile_vectors
         from sheets import write_missions, sync_config_tab, load_profile_vectors, save_profile_vectors, load_feedback_examples, load_seen_posts_all_tabs, index_rejected_posts
+        from sheets.usage_stats import write_usage_stats
 
         # Step 1 — Config (fail fast)
         logger.info("[run] Loading configuration...")
@@ -160,7 +164,7 @@ def main() -> None:
         raw_posts = []
         logger.info("[run] Starting Apify scraping...")
         keyword_override = config.remote_keywords if run_mode == "job" else None
-        apify_posts = scrape_apify(config, logger, seen_urls=seen_urls_global, seen_hashes=seen_hashes_global, keyword_override=keyword_override)
+        apify_posts, apify_stats = scrape_apify(config, logger, seen_urls=seen_urls_global, seen_hashes=seen_hashes_global, keyword_override=keyword_override)
         raw_posts.extend(apify_posts)
         logger.info("[run] Apify scraping complete — %d posts collected.", len(apify_posts))
 
@@ -236,21 +240,66 @@ def main() -> None:
         write_missions(enriched_posts, config, logger, seen_urls=seen_urls_global, seen_hashes=seen_hashes_global, tab_name_override=tab_name_override)
 
         # Final summary
+        pipeline_duration = round(time.time() - pipeline_start, 1)
         logger.info("=" * 60)
         logger.info(
             "[run] Pipeline complete. %d missions written to Google Sheets.",
             len(enriched_posts),
         )
+        logger.info("[run] Total pipeline duration: %.1fs", pipeline_duration)
         logger.info("=" * 60)
+
+        # Write usage stats for the dashboard
+        usage_entry = {
+            "timestamp": run_timestamp,
+            "date": date_str,
+            "run_mode": run_mode,
+            "status": "success",
+            "posts_raw": apify_stats.get("posts_raw", 0),
+            "posts_unique": apify_stats.get("posts_unique", 0),
+            "posts_scored": len(enriched_posts),
+            "posts_written": len(enriched_posts),
+            "keywords_count": apify_stats.get("keywords_count", 0),
+            "apify_cost_usd": apify_stats.get("cost_usd", -1),
+            "apify_duration_seconds": apify_stats.get("duration_seconds", 0),
+            "pipeline_duration_seconds": pipeline_duration,
+        }
+        write_usage_stats(usage_entry, logger)
 
     except EnvironmentError as exc:
         logger.critical("[run] Configuration error — cannot proceed: %s", exc)
+        _write_error_stats(run_timestamp, date_str, run_mode, pipeline_start, logger)
         sys.exit(1)
 
     except Exception as exc:  # noqa: BLE001
         logger.critical("[run] Unhandled exception: %s", exc)
         logger.critical(traceback.format_exc())
+        _write_error_stats(run_timestamp, date_str, run_mode, pipeline_start, logger)
         sys.exit(1)
+
+
+def _write_error_stats(
+    timestamp: str, date: str, run_mode: str, pipeline_start: float, logger: logging.Logger
+) -> None:
+    """Write a failed run entry to docs/usage.json (best effort)."""
+    try:
+        from sheets.usage_stats import write_usage_stats
+        write_usage_stats({
+            "timestamp": timestamp,
+            "date": date,
+            "run_mode": run_mode,
+            "status": "error",
+            "posts_raw": 0,
+            "posts_unique": 0,
+            "posts_scored": 0,
+            "posts_written": 0,
+            "keywords_count": 0,
+            "apify_cost_usd": -1,
+            "apify_duration_seconds": 0,
+            "pipeline_duration_seconds": round(time.time() - pipeline_start, 1),
+        }, logger)
+    except Exception:
+        pass  # Never let stats writing crash the process
 
 
 if __name__ == "__main__":
