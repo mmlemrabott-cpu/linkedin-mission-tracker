@@ -55,8 +55,8 @@ from scraper.linkedin_scraper import (
     _text_hash,
 )
 
-# Apify actor ID for supreme_coder/linkedin-post
-_ACTOR_ID = "Wpp1BZ6yGWjySadk3"
+# Apify actor slug — used in REST API URLs (namespace~name format)
+_ACTOR_ID = "supreme_coder~linkedin-post"
 
 # Apify REST API base URL
 _APIFY_BASE_URL = "https://api.apify.com/v2"
@@ -161,7 +161,7 @@ def scrape_apify(
     }
 
     endpoint = (
-        f"{_APIFY_BASE_URL}/acts/{_ACTOR_ID}/runs/sync-get-dataset-items"
+        f"{_APIFY_BASE_URL}/acts/{_ACTOR_ID}/run-sync-get-dataset-items"
         f"?token={config.apify_api_token}&timeout={_ACTOR_SYNC_TIMEOUT_SECONDS}"
     )
 
