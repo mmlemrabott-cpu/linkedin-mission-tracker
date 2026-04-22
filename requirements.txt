@@ -3,6 +3,7 @@ anthropic==0.40.0
 
 # Apify LinkedIn post scraper
 apify-client==1.8.1
+apify-shared>=1.1.2
 
 # LinkedIn profile fetching + HTML parsing
 requests==2.32.3
