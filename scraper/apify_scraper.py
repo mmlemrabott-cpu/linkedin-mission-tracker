@@ -5,6 +5,14 @@ Replaces BeReach as the scraping backend. Uses the Apify actor
 `supreme_coder/linkedin-post` (actor ID: Wpp1BZ6yGWjySadk3) which accepts
 LinkedIn search URLs and returns structured post data.
 
+Uses the Apify REST API directly via `requests` — no apify-client library
+dependency, avoiding transitive version-conflict issues.
+
+Endpoint used:
+  POST /v2/acts/{actorId}/runs/sync-get-dataset-items?token={token}&timeout=300
+  This synchronous endpoint runs the actor and streams dataset items back once
+  the run completes (or times out after `timeout` seconds).
+
 Design:
   - All keyword strings are converted to LinkedIn search URLs with
     datePosted=past-24h to limit results to the last 24 hours.
@@ -36,7 +44,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import quote
 
-from apify_client import ApifyClient
+import requests
 
 from config.config import AppConfig
 from scraper.linkedin_scraper import (
@@ -49,6 +57,16 @@ from scraper.linkedin_scraper import (
 
 # Apify actor ID for supreme_coder/linkedin-post
 _ACTOR_ID = "Wpp1BZ6yGWjySadk3"
+
+# Apify REST API base URL
+_APIFY_BASE_URL = "https://api.apify.com/v2"
+
+# Synchronous run endpoint — blocks until the actor finishes and returns
+# dataset items directly. `timeout` is the actor's max runtime in seconds.
+_ACTOR_SYNC_TIMEOUT_SECONDS = 300
+
+# HTTP request timeout for the synchronous actor call (actor timeout + margin)
+_HTTP_REQUEST_TIMEOUT = _ACTOR_SYNC_TIMEOUT_SECONDS + 30
 
 # LinkedIn search URL template — keywords are URL-encoded, datePosted restricts
 # to the last 24 hours so that results align with our daily run cadence.
@@ -86,8 +104,11 @@ def scrape_apify(
     Fetch LinkedIn posts from the Apify `supreme_coder/linkedin-post` actor.
 
     Converts each keyword string to a LinkedIn search URL (past-24h filter)
-    and triggers a single Apify actor run with all URLs batched together.
+    and triggers a single synchronous Apify actor run with all URLs batched.
     Apify handles LinkedIn rate-limiting internally.
+
+    Uses the Apify REST API directly (no apify-client library) to avoid
+    transitive dependency version conflicts.
 
     Results are normalised into RawPost dicts, filtered to within-24h posts,
     deduplicated by URL and text hash (within-run and cross-run), and saved to
@@ -131,8 +152,7 @@ def scrape_apify(
     for i, (kw, url) in enumerate(zip(keyword_queries, linkedin_urls)):
         logger.debug("[apify] Keyword %d: '%s' → %s", i + 1, kw[:80], url)
 
-    # Trigger Apify actor run (synchronous — blocks until complete)
-    client = ApifyClient(config.apify_api_token)
+    # Call the synchronous Apify run endpoint
     run_input: Dict[str, Any] = {
         "urls": linkedin_urls,
         "deepScrape": False,          # faster; sufficient for post text + metadata
@@ -140,34 +160,44 @@ def scrape_apify(
         "rawData": False,
     }
 
+    endpoint = (
+        f"{_APIFY_BASE_URL}/acts/{_ACTOR_ID}/runs/sync-get-dataset-items"
+        f"?token={config.apify_api_token}&timeout={_ACTOR_SYNC_TIMEOUT_SECONDS}"
+    )
+
     try:
-        run = client.actor(_ACTOR_ID).call(run_input=run_input)
+        logger.info(
+            "[apify] POST sync-get-dataset-items (HTTP timeout=%ds, actor timeout=%ds).",
+            _HTTP_REQUEST_TIMEOUT,
+            _ACTOR_SYNC_TIMEOUT_SECONDS,
+        )
+        resp = requests.post(
+            endpoint,
+            json=run_input,
+            timeout=_HTTP_REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        raw_items: List[Dict[str, Any]] = resp.json()
+    except requests.exceptions.HTTPError as exc:
+        logger.error(
+            "[apify] HTTP %d error from Apify API: %s",
+            exc.response.status_code if exc.response is not None else 0,
+            exc,
+        )
+        return []
     except Exception as exc:
         logger.error("[apify] Actor run failed: %s", exc)
         return []
 
-    if run is None:
-        logger.error("[apify] Actor run returned None — check Apify token and actor ID.")
+    if not isinstance(raw_items, list):
+        logger.error(
+            "[apify] Unexpected response format (expected list, got %s): %s",
+            type(raw_items).__name__,
+            str(raw_items)[:200],
+        )
         return []
 
-    dataset_id = run.get("defaultDatasetId")
-    if not dataset_id:
-        logger.error("[apify] No defaultDatasetId in actor run result: %s", run)
-        return []
-
-    logger.info(
-        "[apify] Actor run complete — run_id=%s, dataset_id=%s.",
-        run.get("id"), dataset_id,
-    )
-
-    # Retrieve all items from the dataset
-    try:
-        raw_items = list(client.dataset(dataset_id).iterate_items())
-    except Exception as exc:
-        logger.error("[apify] Failed to retrieve dataset items: %s", exc)
-        return []
-
-    logger.info("[apify] Retrieved %d raw item(s) from dataset.", len(raw_items))
+    logger.info("[apify] Retrieved %d raw item(s) from actor run.", len(raw_items))
 
     # Normalise, filter, and deduplicate
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
