@@ -10,7 +10,7 @@ Runs automatically every day at **10:30 UTC** (12:30 CEST / 11:30 CET) via GitHu
 
 ```
 1. Read config from Paramètres tab (your profile, countries, keywords)
-2. Scrape LinkedIn posts via BeReach API for each country × keyword pair
+2. Scrape LinkedIn posts via Apify (supreme_coder/linkedin-post actor) — all keywords batched in one run
 3. Score each post with Claude Haiku against your profile vector (0–100)
 4. Write scored results to Missions tab — deduplicated across runs
 ```
@@ -205,7 +205,7 @@ There are **two workflows** — trigger them both manually for the first run:
 3. On the right side of the page, click **Run workflow** → **Run workflow** (green button)
 4. Wait **15–20 minutes** → open your Google Sheet → check the **Missions_YYYY-MM** tab
 
-> The scraper paces requests using the `retryAfter` field returned by the BeReach API after each query. Total pipeline time depends on your keyword count and the API's rate-limit hints, typically **15–20 minutes** for a standard config.
+> Apify runs all keyword URLs in a single actor call and handles LinkedIn rate-limiting internally. Typical pipeline time is **5–10 minutes** for a standard config.
 
 **Workflow 2 — Remote jobs → Remote tab**
 
@@ -224,11 +224,12 @@ There are **two workflows** — trigger them both manually for the first run:
 ```
 Paramètres tab read         → your config loaded (profile, countries, keywords)
 Profils_Cache checked       → empty → cache miss
-BeReach API called          → your LinkedIn profile fetched and stored
-Posts scraped (BeReach)     → for each country × keyword pair
+BeReach API called          → your LinkedIn profile fetched and stored in cache
+Apify actor triggered       → all keyword URLs batched in one run (past-24h filter)
 Posts scored (Claude)       → each post matched against your profile (0–100)
 Results written             → Missions tab populated with scored posts
 Dedup_Index updated         → prevents duplicates on all future runs
+docs/usage.json updated     → dashboard stats committed to repo
 ```
 
 ## Subsequent runs (daily, 10:30 UTC = 12:30 CEST)
@@ -270,7 +271,6 @@ New results appended        → Missions tab grows daily
 | `APIError: 403` on Sheets | Sheet not shared with service account | Share the sheet with the `client_email` from your JSON key (Step 4.6) |
 | `json.JSONDecodeError` on startup | Newlines in `GOOGLE_SERVICE_ACCOUNT_JSON` | Re-run the Python one-liner from Step 4.5 — result must be one line |
 | 0 posts returned | Keywords too narrow | Check `logs/run_YYYY-MM-DD.log` artifact; try broader keywords |
-| `HTTP 429` errors in logs | BeReach rate limit hit | Already handled automatically — scraper retries with backoff. If persistent, reduce keyword count in `Paramètres` |
 | Score always 0 | Profile URL not reachable | Verify `profil` URL in Paramètres opens without login in a private browser |
 | Workflow not visible in Actions | GitHub indexing delay | Make a small change to any workflow file and push |
 
@@ -294,9 +294,10 @@ run.py (orchestrator)
 ├── config/config.py           — load & validate AppConfig from env vars
 ├── sheets/sheets_writer.py    — read Paramètres tab → override config
 │                              — load Profils_Cache + Dedup_Index
-├── scraper/apify_scraper.py   — Apify actor: scrape posts by keyword URL
+├── scraper/apify_scraper.py   — Apify actor: all keywords batched → RawPost list + stats
 ├── matcher/profile_matcher.py — BeReach API: fetch profile → Claude Haiku scoring
-└── sheets/sheets_writer.py    — write enriched posts → update Dedup_Index
+├── sheets/sheets_writer.py    — write enriched posts → update Dedup_Index
+└── sheets/usage_stats.py      — append run metrics to docs/usage.json
 ```
 
 Config priority: **Paramètres tab** (runtime, editable) → `config/settings.json` (bootstrap defaults)
@@ -304,6 +305,18 @@ Config priority: **Paramètres tab** (runtime, editable) → `config/settings.js
 Two pipelines:
 - `daily_extract.yml` — 10:30 UTC (12:30 CEST) — scrapes freelance missions → `Missions_YYYY-MM` tab
 - `daily_remote.yml` — 11:00 UTC (13:00 CEST) — scrapes remote jobs → `Remote_YYYY-MM` tab
+
+---
+
+## Dashboard (GitHub Pages)
+
+Each pipeline run writes metrics to `docs/usage.json` and the workflow commits it back to the repo. GitHub Pages serves a live dashboard from that file.
+
+**Activate once** (after forking): **Settings → Pages → Source: Deploy from a branch → Branch: master, folder: /docs → Save**
+
+Dashboard URL: `https://{your-github-username}.github.io/linkedin-freelance-mission-tracker/`
+
+Metrics tracked: posts scraped, missions retained, Apify cost (USD), run duration — filterable by mode (Freelance / Job).
 
 ---
 

@@ -182,7 +182,7 @@ There are **two workflows** to trigger manually on first run:
 3. On the right side, click **Run workflow** → **Run workflow** (green button)
 4. Wait **15–20 minutes** → open your sheet → check the **Missions_YYYY-MM** tab
 
-> The scraper paces each BeReach API request using the API's own `retryAfter` hint. Total runtime depends on keyword count and rate-limit responses.
+> Apify runs all keyword URLs in a single actor call and handles rate-limiting internally. Typical runtime is **5–10 minutes**.
 
 **Workflow 2 — Remote jobs**
 
@@ -202,10 +202,11 @@ There are **two workflows** to trigger manually on first run:
 Paramètres tab read         → your config loaded (profile, countries, keywords)
 Profils_Cache checked       → empty → cache miss
 BeReach called              → your LinkedIn profile fetched once and cached
-Posts scraped               → for each country × keyword pair
+Apify actor triggered       → all keyword URLs batched in one run (past-24h filter)
 Posts scored (Claude)       → each post matched against your profile (0–100)
 Results written             → Missions tab populated
 Dedup_Index updated         → prevents duplicates on all future runs
+docs/usage.json updated     → dashboard stats committed to repo
 ```
 
 ## Subsequent runs (daily, 10:30 UTC = 12:30 CEST)

@@ -18,7 +18,7 @@ Edit `config/settings.json`:
 }
 ```
 
-The pipeline fetches your LinkedIn profile via the BeReach API to build a skills vector used for scoring. Make sure your profile URL is public.
+The pipeline fetches your LinkedIn profile via the BeReach API to build a skills vector used for scoring (BeReach is used only for profile fetching — post scraping uses Apify). Make sure your profile URL is public.
 
 ### 2. Set your target countries
 
@@ -85,7 +85,7 @@ Just add the country name to `TARGET_COUNTRIES`. No code change required.
 
 ## Extending the Scoring Logic
 
-The scoring engine is in `matcher/profile_matcher.py` (uses BeReach API to fetch profile vectors, then Claude Haiku to score). The main entry point is:
+The scoring engine is in `matcher/profile_matcher.py` (uses BeReach API to fetch profile vectors, then Claude Haiku to score each post). The main entry point is:
 
 ```python
 def score_post(post: RawPost, profile: LinkedInProfile, feedback: list[dict]) -> EnrichedPost:
@@ -149,9 +149,13 @@ scraper/
   bereach_scraper.py      — backup scraper (BeReach API, kept for reference)
   linkedin_scraper.py     — shared utilities (RawPost type, dedup helpers, 24h filter)
 matcher/
-  profile_matcher.py      — Claude Haiku scoring engine + LinkedIn profile fetcher
+  profile_matcher.py      — Claude Haiku scoring engine + BeReach profile fetcher
 sheets/
   sheets_writer.py        — Google Sheets read/write, dedup, cache
+  usage_stats.py          — appends run metrics to docs/usage.json for the dashboard
+docs/
+  index.html              — GitHub Pages dashboard (Chart.js, reads usage.json)
+  usage.json              — run history (committed by each GitHub Actions run)
 .github/workflows/
   daily_extract.yml       — freelance missions pipeline (10:30 UTC daily = 12:30 CEST)
   daily_remote.yml        — remote jobs pipeline (11:00 UTC daily = 13:00 CEST)
