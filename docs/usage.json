@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "timestamp": "2026-04-22T17:45:32Z",
+    "date": "2026-04-22",
+    "run_mode": "freelance",
+    "status": "success",
+    "posts_raw": 54,
+    "posts_unique": 31,
+    "posts_scored": 0,
+    "posts_written": 0,
+    "keywords_count": 5,
+    "apify_cost_usd": 0.002,
+    "apify_duration_seconds": 9.4,
+    "pipeline_duration_seconds": 35.6
+  }
+]
