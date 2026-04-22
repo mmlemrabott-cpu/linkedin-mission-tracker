@@ -208,7 +208,7 @@ def scrape_apify(
     # Call the synchronous Apify run endpoint
     run_input: Dict[str, Any] = {
         "urls": linkedin_urls,
-        "deepScrape": False,          # faster; sufficient for post text + metadata
+        "deepScrape": True,           # required for full LinkedIn URL (with title slug + suffix)
         "limitPerSource": config.max_posts_per_country,
         "rawData": False,
     }
