@@ -46,9 +46,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin master
           git add docs/usage.json
           git diff --staged --quiet || git commit -m "chore: usage stats $(date -u +%Y-%m-%d) [skip ci]"
+          git pull --rebase origin master
           git push
 
       - name: Upload run logs
