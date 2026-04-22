@@ -85,7 +85,7 @@ Just add the country name to `TARGET_COUNTRIES`. No code change required.
 
 ## Extending the Scoring Logic
 
-The scoring engine is in `matcher/profile_matcher.py`. The main entry point is:
+The scoring engine is in `matcher/profile_matcher.py` (uses BeReach API to fetch profile vectors, then Claude Haiku to score). The main entry point is:
 
 ```python
 def score_post(post: RawPost, profile: LinkedInProfile, feedback: list[dict]) -> EnrichedPost:
@@ -145,8 +145,9 @@ config/
   config.py               — loads and validates AppConfig from env + settings.json
   settings.json           — user preferences (profile, countries, keywords, thresholds)
 scraper/
-  bereach_scraper.py      — primary scraper (BeReach API)
-  linkedin_scraper.py     — legacy module (utility functions only; scraping replaced by BeReach)
+  apify_scraper.py        — primary scraper (Apify supreme_coder/linkedin-post actor)
+  bereach_scraper.py      — backup scraper (BeReach API, kept for reference)
+  linkedin_scraper.py     — shared utilities (RawPost type, dedup helpers, 24h filter)
 matcher/
   profile_matcher.py      — Claude Haiku scoring engine + LinkedIn profile fetcher
 sheets/

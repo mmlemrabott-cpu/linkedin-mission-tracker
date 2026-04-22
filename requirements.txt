@@ -1,6 +1,9 @@
 # Claude AI scoring
 anthropic==0.40.0
 
+# Apify LinkedIn post scraper
+apify-client==1.8.1
+
 # LinkedIn profile fetching + HTML parsing
 requests==2.32.3
 beautifulsoup4==4.12.3

@@ -83,17 +83,19 @@ The `Paramètres` tab is a **3-column table** (columns A, B, C). Each row is a c
 
 ### Step 3 — Get your API tokens
 
-You need tokens from **2 services** (BeReach and Anthropic):
+You need tokens from **2 services** (Apify and Anthropic):
 
-#### BeReach API token
+#### Apify API token
 
-BeReach scrapes LinkedIn posts and fetches LinkedIn profiles.
+Apify scrapes LinkedIn posts using the `supreme_coder/linkedin-post` actor. No cookies or LinkedIn account required.
 
-1. Go to **[bereach.ai](https://bereach.ai/)** and create an account
-2. Choose a plan — a paid plan is recommended for daily use (free tier has volume limits)
-3. After login, go to your **Dashboard → API** (or **Settings → API Tokens**)
-4. Copy your **API token** — it looks like a long alphanumeric string
-5. Save it as `BEREACH_API_TOKEN`
+1. Go to **[console.apify.com](https://console.apify.com/)** and create an account
+2. Go to **Settings → Integrations → API tokens**
+3. Click **Create new token** → name it (e.g. `linkedin-tracker`) → **Create**
+4. Copy the token — it starts with `apify_api_...`
+5. Save it as `APIFY_API_TOKEN`
+
+Cost: ~$1 per 1,000 posts scraped. A free trial credit is included on signup.
 
 #### Anthropic API key
 
@@ -183,7 +185,7 @@ Scroll to **Environment secrets** → **Add secret** — add all 4:
 
 | Secret name | Where to get it | Example format |
 |-------------|----------------|---------------|
-| `BEREACH_API_TOKEN` | Step 3 — BeReach dashboard | `abc123xyz...` |
+| `APIFY_API_TOKEN` | Step 3 — Apify console | `apify_api_...` |
 | `ANTHROPIC_API_KEY` | Step 3 — Anthropic console | `sk-ant-api03-...` |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Step 4.5 — one-line JSON output | `{"type":"service_account",...}` |
 | `SPREADSHEET_ID` | Step 1 — from your sheet URL | `1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms` |
@@ -278,7 +280,7 @@ New results appended        → Missions tab grows daily
 
 | Service | Free tier | Typical paid |
 |---------|-----------|------|
-| BeReach | Limited volume | ~$30–100/month depending on plan |
+| Apify | Free trial credit included | ~$1/1,000 posts scraped |
 | Anthropic Claude Haiku | $5 free credit | ~$1–5/month |
 | Google Sheets API | Always free | Free |
 | GitHub Actions | 2,000 min/month free | Free for this use case |
@@ -292,7 +294,7 @@ run.py (orchestrator)
 ├── config/config.py           — load & validate AppConfig from env vars
 ├── sheets/sheets_writer.py    — read Paramètres tab → override config
 │                              — load Profils_Cache + Dedup_Index
-├── scraper/bereach_scraper.py — BeReach API: scrape posts by keyword+country
+├── scraper/apify_scraper.py   — Apify actor: scrape posts by keyword URL
 ├── matcher/profile_matcher.py — BeReach API: fetch profile → Claude Haiku scoring
 └── sheets/sheets_writer.py    — write enriched posts → update Dedup_Index
 ```

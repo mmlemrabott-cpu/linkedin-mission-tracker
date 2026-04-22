@@ -72,15 +72,17 @@ Use LinkedIn boolean syntax: `AND`, `OR`, quoted phrases for exact matches.
 
 ## Step 3 — Get your API tokens
 
-### BeReach API token
+### Apify API token
 
-BeReach scrapes LinkedIn posts and fetches LinkedIn profiles.
+Apify scrapes LinkedIn posts using the `supreme_coder/linkedin-post` actor. No LinkedIn account or cookies required.
 
-1. Go to **[bereach.ai](https://bereach.ai/)** → create an account
-2. Choose a plan (paid recommended for daily use — free tier has volume limits)
-3. After login: **Dashboard → API** or **Settings → API Tokens**
-4. Copy your token (long alphanumeric string)
-5. Save as `BEREACH_API_TOKEN`
+1. Go to **[console.apify.com](https://console.apify.com/)** → create an account
+2. Go to **Settings → Integrations → API tokens**
+3. Click **Create new token** → name it (e.g. `linkedin-tracker`) → **Create**
+4. Copy your token — it starts with `apify_api_...`
+5. Save as `APIFY_API_TOKEN`
+
+Cost: ~$1 per 1,000 posts. A free trial credit is included on signup.
 
 ### Anthropic API key
 
@@ -160,7 +162,7 @@ In **Settings → Environments → production → Environment secrets → Add se
 
 | Secret name | Value |
 |-------------|-------|
-| `BEREACH_API_TOKEN` | From Step 3 |
+| `APIFY_API_TOKEN` | From Step 3 |
 | `ANTHROPIC_API_KEY` | From Step 3 |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Single-line JSON from Step 4.5 |
 | `SPREADSHEET_ID` | Spreadsheet ID from Step 1 |
@@ -221,11 +223,10 @@ New results appended        → Missions tab grows daily
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `Placeholder values detected` | `profil` row not filled | Complete Step 2 — especially the `profil` row |
-| `KeyError: BEREACH_API_TOKEN` | Secret in wrong location | Secrets must be under **Environments → production**, not top-level Actions secrets |
+| `KeyError: APIFY_API_TOKEN` | Secret in wrong location | Secrets must be under **Environments → production**, not top-level Actions secrets |
 | `APIError: 403` on Sheets | Sheet not shared | Share with the `client_email` from JSON key (Step 4.6) |
 | `json.JSONDecodeError` | Newlines in JSON secret | Re-run the one-liner from Step 4.5 — output must be one line |
-| 0 posts returned | Keywords too narrow | Check log artifact; try broader keywords |
-| `HTTP 429` errors in logs | BeReach rate limit hit | Already handled automatically — scraper retries with backoff. If persistent, reduce keyword count in `Paramètres` |
+| 0 posts returned | Keywords too narrow or Apify run failed | Check log artifact; try broader keywords; verify `APIFY_API_TOKEN` is valid |
 | Score always 0 | Profile URL not public | Open the profile URL in a private browser — must be accessible without login |
 
 For more detail, see [README.md](README.md).

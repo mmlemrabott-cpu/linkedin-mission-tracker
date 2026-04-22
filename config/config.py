@@ -21,7 +21,7 @@ class AppConfig:
     anthropic_api_key: str
     google_service_account_json: str  # raw JSON string, parsed in-memory — never written to disk
     spreadsheet_id: str
-    bereach_api_token: str
+    apify_api_token: str
 
     # From config/settings.json (or overridden by Paramètres sheet tab)
     linkedin_profiles: List[Dict[str, str]]  # [{"name": "...", "url": "..."}, ...]  max 3
@@ -51,7 +51,7 @@ def load_config() -> AppConfig:
     anthropic_api_key = _require_env("ANTHROPIC_API_KEY")
     google_service_account_json = _require_env("GOOGLE_SERVICE_ACCOUNT_JSON")
     spreadsheet_id = _require_env("SPREADSHEET_ID")
-    bereach_api_token = _require_env("BEREACH_API_TOKEN")
+    apify_api_token = _require_env("APIFY_API_TOKEN")
 
     # Validate that the service account JSON is parseable before any API calls are made
     try:
@@ -109,7 +109,7 @@ def load_config() -> AppConfig:
         sheet_tab_format=settings.get("SHEET_TAB_FORMAT", "Missions_{YYYY-MM}"),
         remote_keywords=settings.get("REMOTE_KEYWORDS", []),
         remote_tab=settings.get("REMOTE_TAB", "Remote"),
-        bereach_api_token=bereach_api_token,
+        apify_api_token=apify_api_token,
     )
 
 

@@ -3,11 +3,11 @@ run.py — Entry point for the LinkedIn Freelance Mission Tracker.
 
 Orchestrates the full pipeline:
   1. Load config (fail fast if env vars missing)
-  2. Scrape LinkedIn posts via BeReach
+  2. Scrape LinkedIn posts via Apify (supreme_coder/linkedin-post actor)
   3. Score posts via Claude API
   4. Write results to Google Sheets
 
-Invoked daily by GitHub Actions at 06:00 UTC.
+Invoked daily by GitHub Actions at 10:30 UTC (12:30 CEST).
 Can also be run locally: `python run.py`
 """
 
@@ -103,7 +103,7 @@ def main() -> None:
     try:
         # Import here so missing deps surface with a clear error after logging is set up
         from config.config import load_config
-        from scraper import scrape_bereach
+        from scraper import scrape_apify
         from matcher import score_posts, fetch_profile_vectors
         from sheets import write_missions, sync_config_tab, load_profile_vectors, save_profile_vectors, load_feedback_examples, load_seen_posts_all_tabs, index_rejected_posts
 
@@ -156,18 +156,18 @@ def main() -> None:
             len(seen_urls_global), len(seen_hashes_global),
         )
 
-        # Step 3 — BeReach scraper
+        # Step 3 — Apify scraper
         raw_posts = []
-        logger.info("[run] Starting BeReach scraping...")
+        logger.info("[run] Starting Apify scraping...")
         keyword_override = config.remote_keywords if run_mode == "job" else None
-        bereach_posts = scrape_bereach(config, logger, seen_urls=seen_urls_global, seen_hashes=seen_hashes_global, keyword_override=keyword_override)
-        raw_posts.extend(bereach_posts)
-        logger.info("[run] BeReach scraping complete — %d posts collected.", len(bereach_posts))
+        apify_posts = scrape_apify(config, logger, seen_urls=seen_urls_global, seen_hashes=seen_hashes_global, keyword_override=keyword_override)
+        raw_posts.extend(apify_posts)
+        logger.info("[run] Apify scraping complete — %d posts collected.", len(apify_posts))
 
         logger.info("[run] Scraping complete — %d total raw posts collected.", len(raw_posts))
 
         if not raw_posts:
-            logger.warning("[run] No posts scraped. Check BeReach API and keyword config.")
+            logger.warning("[run] No posts scraped. Check Apify API token and keyword config.")
 
         # Step 3 — Score (load past user feedback to inject into Claude prompt)
         logger.info("[run] Loading user feedback examples from sheet...")
