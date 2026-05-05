@@ -23,7 +23,7 @@ Posts below your score threshold are discarded. Everything else lands in your sh
 
 ### Step 1 — Copy the Google Sheets template
 
-**[Open the template →](https://docs.google.com/spreadsheets/d/e/2PACX-1vS4MfF5gNZ0lBo2PbGi2pvntAXCfv2mc11JpB5OsYUK7kjWiVSfH3JSU2BoYxx4Q-gYz7TwG23QoxGf/pubhtml)**
+**[Open the template →](https://docs.google.com/spreadsheets/d/1MXV1UpnUYTLWr7nzHMt1yYZhXD0-h1bQD3fxI3MHWx0/edit?usp=sharing)**
 
 1. Click **File → Make a copy** — this creates your own editable version in your Google Drive
 2. From the URL of your copy, copy the spreadsheet **ID**:

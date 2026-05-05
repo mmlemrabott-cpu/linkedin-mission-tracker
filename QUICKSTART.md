@@ -4,7 +4,7 @@
 
 ## Step 1 — Copy the Google Sheets template
 
-1. Open the template: **[Google Sheets Template →](https://docs.google.com/spreadsheets/d/e/2PACX-1vS4MfF5gNZ0lBo2PbGi2pvntAXCfv2mc11JpB5OsYUK7kjWiVSfH3JSU2BoYxx4Q-gYz7TwG23QoxGf/pubhtml)**
+1. Open the template: **[Google Sheets Template →](https://docs.google.com/spreadsheets/d/1MXV1UpnUYTLWr7nzHMt1yYZhXD0-h1bQD3fxI3MHWx0/edit?usp=sharing)**
 2. Click **File → Make a copy** — this saves a copy to your Google Drive
 3. From the URL of your copy, copy the spreadsheet **ID**:
    ```
