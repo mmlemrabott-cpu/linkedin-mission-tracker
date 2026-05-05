@@ -194,5 +194,19 @@
     "apify_cost_usd": 0.002,
     "apify_duration_seconds": 11.5,
     "pipeline_duration_seconds": 29.8
+  },
+  {
+    "timestamp": "2026-05-05T14:09:50Z",
+    "date": "2026-05-05",
+    "run_mode": "freelance",
+    "status": "success",
+    "posts_raw": 79,
+    "posts_unique": 73,
+    "posts_scored": 32,
+    "posts_written": 32,
+    "keywords_count": 5,
+    "apify_cost_usd": 0.002,
+    "apify_duration_seconds": 10.3,
+    "pipeline_duration_seconds": 75.7
   }
 ]
