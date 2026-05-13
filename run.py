@@ -7,7 +7,7 @@ Orchestrates the full pipeline:
   3. Score posts via Claude API
   4. Write results to Google Sheets
 
-Invoked daily by GitHub Actions at 10:30 UTC (12:30 CEST).
+Invoked daily by GitHub Actions at 07:00 UTC (09:00 CEST, lun–sam).
 Can also be run locally: `python run.py`
 """
 
