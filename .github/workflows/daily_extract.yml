@@ -2,8 +2,8 @@ name: Daily LinkedIn Freelance Mission Extract
 
 on:
   schedule:
-    # 10:30 UTC daily = 12:30 CEST (summer) / 11:30 CET (winter)
-    - cron: '30 10 * * *'
+    # 07:00 UTC = 09:00 CEST (summer) / 08:00 CET (winter) — lun–sam, dimanche exclu
+    - cron: '0 7 * * 1-6'
   workflow_dispatch:
     # Allows manual trigger from the GitHub Actions UI for testing
 
@@ -46,9 +46,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin master
           git add docs/usage.json
           git diff --staged --quiet || git commit -m "chore: usage stats $(date -u +%Y-%m-%d) [skip ci]"
-          git pull --rebase origin master
           git push
 
       - name: Upload run logs

@@ -157,6 +157,8 @@ docs/
   index.html              — GitHub Pages dashboard (Chart.js, reads usage.json)
   usage.json              — run history (committed by each GitHub Actions run)
 .github/workflows/
-  daily_extract.yml       — freelance missions pipeline (10:30 UTC daily = 12:30 CEST)
-  daily_remote.yml        — remote jobs pipeline (11:00 UTC daily = 13:00 CEST)
+  daily_extract.yml       — freelance missions pipeline (07:00 UTC, lun–sam = 09:00 CEST)
+  daily_remote.yml        — remote jobs pipeline (07:30 UTC, lun–sam = 09:30 CEST)
+  afternoon_extract.yml   — freelance missions pipeline (11:30 UTC, lun–ven = 13:30 CEST)
+  afternoon_remote.yml    — remote jobs pipeline (12:00 UTC, lun–ven = 14:00 CEST)
 ```

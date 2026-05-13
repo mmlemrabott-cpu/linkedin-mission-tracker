@@ -1,23 +1,23 @@
-name: Daily LinkedIn Remote Job Extract
+name: Afternoon LinkedIn Freelance Mission Extract
 
 on:
   schedule:
-    # 07:30 UTC = 09:30 CEST (summer) / 08:30 CET (winter) — 30 min after freelance matin (avoids dedup race) — lun–sam, dimanche exclu
-    - cron: '30 7 * * 1-6'
+    # 11:30 UTC = 13:30 CEST (summer) / 12:30 CET (winter) — lun–ven, 2ème run quotidien (offres du matin non détectées)
+    - cron: '30 11 * * 1-5'
   workflow_dispatch:
-    # Allows manual trigger from GitHub Actions UI
+    # Allows manual trigger from the GitHub Actions UI for testing
 
 env:
   PYTHON_VERSION: '3.11'
 
 jobs:
   extract:
-    name: Extract Remote Jobs
+    name: Extract Freelance Missions
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
     permissions:
-      contents: write  # Required to commit docs/usage.json back to the repo
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -32,9 +32,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run remote job extraction pipeline
+      - name: Run extraction pipeline
         env:
-          RUN_MODE: job
+          RUN_MODE: freelance
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
@@ -55,7 +55,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: remote-logs-${{ github.run_id }}
+          name: afternoon-logs-${{ github.run_id }}
           path: logs/
           retention-days: 30
 
@@ -63,6 +63,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: remote-data-${{ github.run_id }}
+          name: afternoon-data-${{ github.run_id }}
           path: data/
           retention-days: 7

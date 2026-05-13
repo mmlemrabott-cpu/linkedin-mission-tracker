@@ -1,9 +1,9 @@
-name: Daily LinkedIn Remote Job Extract
+name: Afternoon LinkedIn Remote Job Extract
 
 on:
   schedule:
-    # 07:30 UTC = 09:30 CEST (summer) / 08:30 CET (winter) — 30 min after freelance matin (avoids dedup race) — lun–sam, dimanche exclu
-    - cron: '30 7 * * 1-6'
+    # 12:00 UTC = 14:00 CEST (summer) / 13:00 CET (winter) — lun–ven, 30 min après afternoon_extract (avoids dedup race)
+    - cron: '0 12 * * 1-5'
   workflow_dispatch:
     # Allows manual trigger from GitHub Actions UI
 
@@ -55,7 +55,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: remote-logs-${{ github.run_id }}
+          name: afternoon-remote-logs-${{ github.run_id }}
           path: logs/
           retention-days: 30
 
@@ -63,6 +63,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: remote-data-${{ github.run_id }}
+          name: afternoon-remote-data-${{ github.run_id }}
           path: data/
           retention-days: 7
