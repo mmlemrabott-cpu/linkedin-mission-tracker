@@ -26,14 +26,14 @@ Design:
     the real Apify cost (usageTotalUsd).
 
 Field mapping (harvestapi/linkedin-post-search → RawPost):
-  url                   → post_url
-  text                  → post_text
-  publishedAt           → post_date  (ISO 8601 UTC)
+  linkedinUrl           → post_url
+  content               → post_text
+  postedAt.date         → post_date  (ISO 8601 UTC, e.g. "2026-06-10T18:08:52.091Z")
   author.name           → author_name
-  author.headline       → author_title
-  author.url            → author_profile_url
-  likesCount            → likes_count
-  commentsCount         → comments_count
+  author.info           → author_title  (headline/job title)
+  author.linkedinUrl    → author_profile_url
+  engagement.likes      → likes_count
+  engagement.comments   → comments_count
   contact_info          ← extracted from post_text via regex
   country               ← "" (country filtering delegated to Claude scorer)
   keyword               ← "" (actor does not report which query produced each post)
@@ -286,10 +286,14 @@ def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:
     Map a `harvestapi/linkedin-post-search` response item to the canonical
     RawPost structure.
 
-    Returns None if essential fields (url, text) are missing or empty.
+    Returns None if essential fields (linkedinUrl, content) are missing or empty.
 
-    HarvestAPI returns a nested `author` object. Falls back to flat field
-    names (authorName, authorHeadline, authorProfileUrl) for forward-compat.
+    harvestapi uses:
+      - "linkedinUrl" for the post URL
+      - "content" for the post text
+      - "postedAt" nested object with "date" (ISO string) and "timestamp" (ms epoch)
+      - "author" nested object with "name", "info" (headline), "linkedinUrl"
+      - "engagement" nested object with "likes", "comments"
 
     Args:
         item: Single item from the Apify actor dataset.
@@ -297,21 +301,17 @@ def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:
     Returns:
         Normalized RawPost or None if the item is malformed.
     """
-    post_url = item.get("url", "")
-    post_text = item.get("text", "")
+    post_url = item.get("linkedinUrl", "")
+    post_text = item.get("content", "")
 
     if not post_url or not isinstance(post_text, str) or not post_text:
         return None
 
-    # HarvestAPI returns publishedAt as ISO 8601 UTC string
-    post_date = (
-        item.get("publishedAt")
-        or item.get("postedAt")
-        or item.get("postedAtISO")
-        or ""
-    )
+    # postedAt is a nested object: {"date": "2026-06-10T18:08:52.091Z", "timestamp": 1781114932091}
+    posted_at: Dict[str, Any] = item.get("postedAt") or {}
+    post_date = posted_at.get("date", "")
     if not post_date:
-        raw_ts = item.get("publishedAtTimestamp") or item.get("postedAtTimestamp")
+        raw_ts = posted_at.get("timestamp")
         if raw_ts and isinstance(raw_ts, (int, float)):
             try:
                 post_date = datetime.fromtimestamp(
@@ -322,14 +322,16 @@ def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:
         else:
             post_date = datetime.now(timezone.utc).isoformat()
 
-    # Author is a nested object in harvestapi; fall back to flat field names
+    # Author is a nested object
     author: Dict[str, Any] = item.get("author") or {}
-    author_name = author.get("name") or item.get("authorName", "")
-    author_title = author.get("headline") or item.get("authorHeadline", "")
-    author_profile_url = author.get("url") or item.get("authorProfileUrl", "")
+    author_name = author.get("name", "")
+    author_title = author.get("info", "")        # "info" = headline/job title
+    author_profile_url = author.get("linkedinUrl", "")
 
-    likes_count = int(item.get("likesCount") or item.get("numLikes") or 0)
-    comments_count = int(item.get("commentsCount") or item.get("numComments") or 0)
+    # Engagement is a nested object: {"likes": 4, "comments": 0, "shares": 1}
+    engagement: Dict[str, Any] = item.get("engagement") or {}
+    likes_count = int(engagement.get("likes") or 0)
+    comments_count = int(engagement.get("comments") or 0)
 
     return RawPost(
         post_url=post_url,
