@@ -1,9 +1,9 @@
 """
 scraper/apify_scraper.py — Apify LinkedIn post scraper.
 
-Replaces BeReach as the scraping backend. Uses the Apify actor
-`supreme_coder/linkedin-post` (actor ID: Wpp1BZ6yGWjySadk3) which accepts
-LinkedIn search URLs and returns structured post data.
+Uses the Apify actor `harvestapi/linkedin-post-search` which accepts plain
+keyword strings and returns structured LinkedIn post data. No LinkedIn cookies
+or account required.
 
 Uses the Apify REST API directly via `requests` — no apify-client library
 dependency, avoiding transitive version-conflict issues.
@@ -14,38 +14,35 @@ Endpoint used:
   the run completes (or times out after `timeout` seconds).
 
 Design:
-  - All keyword strings are converted to LinkedIn search URLs with
-    datePosted=past-24h to limit results to the last 24 hours.
-  - A single actor run is triggered with all keyword URLs batched together.
-    Apify handles LinkedIn rate-limiting internally — no client-side batching
-    or retry logic is required.
+  - Keyword strings are passed directly as `searchQueries` — no URL construction.
+  - `postedLimit: "24h"` is set in the actor input to restrict to the last 24h.
+  - A single actor run processes all keyword queries.
   - The actor returns structured post objects. Each is normalised into the
     canonical RawPost dict and filtered to within-24h posts.
   - Deduplication (URL + text hash) is applied both within-run and
     cross-run (via the seen_urls / seen_hashes sets from Dedup_Index).
   - Raw results are saved to data/raw_posts_{YYYY-MM-DD}.json for debugging.
   - After the sync call, the most recent completed run is fetched to capture
-    the real Apify cost (usageTotalUsd). This powers the usage dashboard.
+    the real Apify cost (usageTotalUsd).
 
-Field mapping (Apify → RawPost):
-  url               → post_url
-  text              → post_text
-  postedAtISO       → post_date  (ISO 8601 UTC — no conversion needed)
-  authorName        → author_name
-  authorHeadline    → author_title
-  authorProfileUrl  → author_profile_url
-  numLikes          → likes_count
-  numComments       → comments_count
-  contact_info      ← extracted from post_text via regex
-  country           ← "" (country filtering delegated to Claude scorer)
-  keyword           ← "" (Apify does not report which URL produced each post)
+Field mapping (harvestapi/linkedin-post-search → RawPost):
+  url                   → post_url
+  text                  → post_text
+  publishedAt           → post_date  (ISO 8601 UTC)
+  author.name           → author_name
+  author.headline       → author_title
+  author.url            → author_profile_url
+  likesCount            → likes_count
+  commentsCount         → comments_count
+  contact_info          ← extracted from post_text via regex
+  country               ← "" (country filtering delegated to Claude scorer)
+  keyword               ← "" (actor does not report which query produced each post)
 """
 
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import quote
 
 import requests
 
@@ -59,7 +56,7 @@ from scraper.linkedin_scraper import (
 )
 
 # Apify actor slug — used in REST API URLs (namespace~name format)
-_ACTOR_ID = "supreme_coder~linkedin-post"
+_ACTOR_ID = "harvestapi~linkedin-post-search"
 
 # Apify REST API base URL
 _APIFY_BASE_URL = "https://api.apify.com/v2"
@@ -71,13 +68,6 @@ _ACTOR_SYNC_TIMEOUT_SECONDS = 300
 # HTTP request timeout for the synchronous actor call (actor timeout + margin)
 _HTTP_REQUEST_TIMEOUT = _ACTOR_SYNC_TIMEOUT_SECONDS + 30
 
-# LinkedIn search URL template — keywords are URL-encoded, datePosted restricts
-# to the last 24 hours so that results align with our daily run cadence.
-_LINKEDIN_SEARCH_URL_TEMPLATE = (
-    "https://www.linkedin.com/search/results/content/"
-    "?keywords={encoded_keywords}&datePosted=%5B%22past-24h%22%5D"
-)
-
 
 class ApifyRunStats(dict):
     """
@@ -86,28 +76,11 @@ class ApifyRunStats(dict):
     Keys:
         posts_raw: int          — items returned by Apify before any filtering
         posts_unique: int       — after 24h filter + deduplication
-        keywords_count: int     — number of keyword URLs sent to the actor
+        keywords_count: int     — number of keyword queries sent to the actor
         cost_usd: float         — real cost from Apify billing API (-1 if unavailable)
         duration_seconds: float — wall-clock time for the Apify actor call
         status: str             — "success" or "error"
     """
-
-
-def _keyword_to_linkedin_url(keyword: str) -> str:
-    """
-    Convert a boolean keyword string to a LinkedIn content search URL.
-
-    The keyword is URL-encoded and embedded into a LinkedIn search URL
-    filtered to the last 24 hours.
-
-    Args:
-        keyword: LinkedIn boolean keyword string (e.g. '"mission" AND "freelance"').
-
-    Returns:
-        Full LinkedIn search URL with encoded keyword and datePosted filter.
-    """
-    encoded = quote(keyword, safe="")
-    return _LINKEDIN_SEARCH_URL_TEMPLATE.format(encoded_keywords=encoded)
 
 
 def _fetch_last_run_cost(token: str, logger: logging.Logger) -> float:
@@ -149,11 +122,11 @@ def scrape_apify(
     keyword_override: Optional[List[str]] = None,
 ) -> Tuple[List[RawPost], ApifyRunStats]:
     """
-    Fetch LinkedIn posts from the Apify `supreme_coder/linkedin-post` actor.
+    Fetch LinkedIn posts from the Apify `harvestapi/linkedin-post-search` actor.
 
-    Converts each keyword string to a LinkedIn search URL (past-24h filter)
-    and triggers a single synchronous Apify actor run with all URLs batched.
-    Apify handles LinkedIn rate-limiting internally.
+    Passes keyword strings directly as `searchQueries` and sets `postedLimit`
+    to "24h" so the actor only returns posts from the last 24 hours.
+    A single synchronous Apify actor run processes all keyword queries.
 
     Uses the Apify REST API directly (no apify-client library) to avoid
     transitive dependency version conflicts.
@@ -193,24 +166,24 @@ def scrape_apify(
         logger.warning("[apify] No keyword queries configured — returning empty list.")
         return [], _error_stats
 
-    # Convert keyword strings to LinkedIn search URLs
-    linkedin_urls = [_keyword_to_linkedin_url(kw) for kw in keyword_queries]
-
     logger.info(
-        "[apify] Starting actor run with %d keyword URL(s) — actor=%s, limitPerSource=%d.",
-        len(linkedin_urls),
+        "[apify] Starting actor run with %d keyword(s) — actor=%s, maxPosts=%d.",
+        len(keyword_queries),
         _ACTOR_ID,
         config.max_posts_per_country,
     )
-    for i, (kw, url) in enumerate(zip(keyword_queries, linkedin_urls)):
-        logger.debug("[apify] Keyword %d: '%s' → %s", i + 1, kw[:80], url)
+    for i, kw in enumerate(keyword_queries):
+        logger.debug("[apify] Keyword %d: '%s'", i + 1, kw[:80])
 
-    # Call the synchronous Apify run endpoint
+    # Pass keyword strings directly — no URL construction needed.
+    # postedLimit="24h" restricts results to the last 24 hours server-side.
     run_input: Dict[str, Any] = {
-        "urls": linkedin_urls,
-        "deepScrape": True,           # required for full LinkedIn URL (with title slug + suffix)
-        "limitPerSource": config.max_posts_per_country,
-        "rawData": False,
+        "searchQueries": keyword_queries,
+        "maxPosts": config.max_posts_per_country,
+        "postedLimit": "24h",
+        "sortBy": "date",
+        "scrapeReactions": False,
+        "scrapeComments": False,
     }
 
     endpoint = (
@@ -310,12 +283,13 @@ def scrape_apify(
 
 def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:
     """
-    Map an Apify `supreme_coder/linkedin-post` response item to the canonical
+    Map a `harvestapi/linkedin-post-search` response item to the canonical
     RawPost structure.
 
     Returns None if essential fields (url, text) are missing or empty.
-    The `postedAtISO` field is already an ISO 8601 UTC string — no conversion
-    from milliseconds is needed.
+
+    HarvestAPI returns a nested `author` object. Falls back to flat field
+    names (authorName, authorHeadline, authorProfileUrl) for forward-compat.
 
     Args:
         item: Single item from the Apify actor dataset.
@@ -329,11 +303,15 @@ def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:
     if not post_url or not isinstance(post_text, str) or not post_text:
         return None
 
-    # postedAtISO is already ISO 8601 UTC (e.g. "2025-04-21T09:34:00.000Z")
-    post_date = item.get("postedAtISO", "")
+    # HarvestAPI returns publishedAt as ISO 8601 UTC string
+    post_date = (
+        item.get("publishedAt")
+        or item.get("postedAt")
+        or item.get("postedAtISO")
+        or ""
+    )
     if not post_date:
-        # Fallback: convert postedAtTimestamp (ms epoch) if ISO field is absent
-        raw_ts = item.get("postedAtTimestamp")
+        raw_ts = item.get("publishedAtTimestamp") or item.get("postedAtTimestamp")
         if raw_ts and isinstance(raw_ts, (int, float)):
             try:
                 post_date = datetime.fromtimestamp(
@@ -344,16 +322,25 @@ def _normalize_apify_post(item: Dict[str, Any]) -> Optional[RawPost]:
         else:
             post_date = datetime.now(timezone.utc).isoformat()
 
+    # Author is a nested object in harvestapi; fall back to flat field names
+    author: Dict[str, Any] = item.get("author") or {}
+    author_name = author.get("name") or item.get("authorName", "")
+    author_title = author.get("headline") or item.get("authorHeadline", "")
+    author_profile_url = author.get("url") or item.get("authorProfileUrl", "")
+
+    likes_count = int(item.get("likesCount") or item.get("numLikes") or 0)
+    comments_count = int(item.get("commentsCount") or item.get("numComments") or 0)
+
     return RawPost(
         post_url=post_url,
-        author_name=item.get("authorName", ""),
-        author_title=item.get("authorHeadline", ""),
-        author_profile_url=item.get("authorProfileUrl", ""),
+        author_name=author_name,
+        author_title=author_title,
+        author_profile_url=author_profile_url,
         post_text=post_text,
         post_date=post_date,
-        likes_count=int(item.get("numLikes") or 0),
-        comments_count=int(item.get("numComments") or 0),
+        likes_count=likes_count,
+        comments_count=comments_count,
         contact_info=_extract_contact_info(post_text),
         country="",    # Country filtering delegated to Claude scorer
-        keyword="",    # Apify does not report which search URL produced each post
+        keyword="",    # Actor does not report which query produced each post
     )
