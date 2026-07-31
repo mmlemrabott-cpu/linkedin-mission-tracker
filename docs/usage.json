@@ -1,19 +1,5 @@
 [
   {
-    "timestamp": "2026-06-03T15:57:02Z",
-    "date": "2026-06-03",
-    "run_mode": "freelance",
-    "status": "success",
-    "posts_raw": 67,
-    "posts_unique": 55,
-    "posts_scored": 23,
-    "posts_written": 23,
-    "keywords_count": 5,
-    "apify_cost_usd": 0.022,
-    "apify_duration_seconds": 8.1,
-    "pipeline_duration_seconds": 52.7
-  },
-  {
     "timestamp": "2026-06-04T10:37:25Z",
     "date": "2026-06-04",
     "run_mode": "freelance",
@@ -1258,5 +1244,19 @@
     "apify_cost_usd": 0.021050000000000003,
     "apify_duration_seconds": 11.0,
     "pipeline_duration_seconds": 22.2
+  },
+  {
+    "timestamp": "2026-07-31T08:00:04Z",
+    "date": "2026-07-31",
+    "run_mode": "freelance",
+    "status": "success",
+    "posts_raw": 29,
+    "posts_unique": 27,
+    "posts_scored": 0,
+    "posts_written": 0,
+    "keywords_count": 5,
+    "apify_cost_usd": 0.052050000000000006,
+    "apify_duration_seconds": 17.9,
+    "pipeline_duration_seconds": 31.4
   }
 ]
