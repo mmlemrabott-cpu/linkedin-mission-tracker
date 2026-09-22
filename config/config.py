@@ -22,6 +22,7 @@ class AppConfig:
     google_service_account_json: str  # raw JSON string, parsed in-memory — never written to disk
     spreadsheet_id: str
     apify_api_token: str
+    bereach_api_token: str = ""  # optional — only needed for profile vector fetching via BeReach
 
     # From config/settings.json (or overridden by Paramètres sheet tab)
     linkedin_profiles: List[Dict[str, str]]  # [{"name": "...", "url": "..."}, ...]  max 3
@@ -52,6 +53,7 @@ def load_config() -> AppConfig:
     google_service_account_json = _require_env("GOOGLE_SERVICE_ACCOUNT_JSON")
     spreadsheet_id = _require_env("SPREADSHEET_ID")
     apify_api_token = _require_env("APIFY_API_TOKEN")
+    bereach_api_token = os.getenv("BEREACH_API_TOKEN", "").strip()
 
     # Validate that the service account JSON is parseable before any API calls are made
     try:
@@ -110,6 +112,7 @@ def load_config() -> AppConfig:
         remote_keywords=settings.get("REMOTE_KEYWORDS", []),
         remote_tab=settings.get("REMOTE_TAB", "Remote"),
         apify_api_token=apify_api_token,
+        bereach_api_token=bereach_api_token,
     )
 
 
