@@ -22,7 +22,6 @@ class AppConfig:
     google_service_account_json: str  # raw JSON string, parsed in-memory — never written to disk
     spreadsheet_id: str
     apify_api_token: str
-    bereach_api_token: str = ""  # optional — only needed for profile vector fetching via BeReach
 
     # From config/settings.json (or overridden by Paramètres sheet tab)
     linkedin_profiles: List[Dict[str, str]]  # [{"name": "...", "url": "..."}, ...]  max 3
@@ -33,6 +32,7 @@ class AppConfig:
     sheet_tab_format: str
     remote_keywords: List[str]   # keywords used when RUN_MODE=job
     remote_tab: str              # sheet tab name for remote job results
+    bereach_api_token: str = ""  # optional — only needed for profile vector fetching via BeReach
 
 
 
